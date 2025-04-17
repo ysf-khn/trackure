@@ -1,0 +1,24 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+Rule Type: Always
+Description: Informs AI that 'src/' prefix in file paths denotes the project root, not a literal directory.
+---
+
+**Trackure Project Path Convention:**
+
+Please be aware of the following convention used in this project regarding file paths:
+
+1.  **`src/` as Root:** When you encounter file paths mentioned with a `src/` prefix (e.g., `src/lib/utils.ts`, `src/components/ui/button.tsx`), this **`src/` prefix signifies the project's source root directory**. It does **not** represent a literal sub-directory named `src`.
+
+2.  **Interpretation:** Treat paths starting with `src/` as if the `src/` part is omitted when referring to the actual file location relative to the project root.
+
+3.  **Examples:**
+    *   `src/components/ui/button.tsx` should be understood as `/components/ui/button.tsx` or `components/ui/button.tsx`.
+    *   `src/lib/supabase/client.ts` should be understood as `/lib/supabase/client.ts` or `lib/supabase/client.ts`.
+    *   `src/app/(app)/dashboard/page.tsx` should be understood as `/app/(app)/dashboard/page.tsx` or `app/(app)/dashboard/page.tsx`.
+
+**Instruction:** Always apply this interpretation when analyzing code, generating file paths, referencing files, or performing searches based on path mentions that use the `src/` prefix. Assume `src/` indicates the top level of the source code structure.
