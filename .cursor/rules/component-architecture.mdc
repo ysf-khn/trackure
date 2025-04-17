@@ -1,0 +1,16 @@
+---
+description: Guidelines for building React components using Shadcn/ui and best practices
+globs: 
+alwaysApply: false
+---
+**Trackure Component Guidelines:**
+
+*   **Composition over Inheritance:** Build UI by composing Shadcn/ui primitives and custom components.
+*   **Props for Data:** Pass data down via props. Keep props interfaces clear and well-typed (TypeScript).
+*   **Hooks for Logic:** Use custom hooks or built-in React hooks for state and side effects.
+*   **Atomic Components:** Utilize core Shadcn UI components (`Button`, `Input`, `Card`, etc.) consistently.
+*   **Presentational vs. Container (Conceptual):** Separate components primarily concerned with display (presentational) from those handling data fetching and logic (container-like, often page-level or feature entry points using query hooks).
+*   **Accessibility:** Ensure components are accessible (proper ARIA attributes, keyboard navigation, focus management). Leverage Shadcn's accessibility foundation.
+*   **Styling:** Apply styles primarily via Tailwind utility classes within the component file. Adhere to the dark theme defined in `tailwind.config.js`.
+
+**Goal:** Create a consistent, maintainable, and accessible component library tailored for Trackure.

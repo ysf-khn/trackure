@@ -1,0 +1,14 @@
+---
+description: Guidelines for handling asynchronous operations like API calls and background tasks
+globs: 
+alwaysApply: false
+---
+**Handling Asynchronicity in Trackure:**
+
+*   **TanStack Query:** Primarily use TanStack Query (`useQuery`, `useMutation`) for managing async data fetching states (loading, error, success).
+*   **Promises & Async/Await:** Use `async/await` syntax consistently for cleaner asynchronous code.
+*   **Error Handling:** Always include `.catch()` blocks or `try...catch` around `await` calls to handle potential promise rejections gracefully.
+*   **Loading States:** Provide clear visual feedback to the user during loading states (e.g., spinners, skeleton loaders, disabled buttons). TanStack Query provides helpers for this.
+*   **Background Tasks:** For potentially long-running operations (e.g., generating large reports if added later, complex data processing), consider offloading to background jobs (e.g., Supabase Edge Functions triggered by DB webhooks, or dedicated queue services later) rather than blocking API responses.
+
+**Goal:** Ensure asynchronous operations are handled robustly, provide good user feedback, and don't degrade application performance.

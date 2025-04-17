@@ -1,0 +1,17 @@
+---
+description: Defines strategy for state management using TanStack Query and Zustand/Jotai
+globs: 
+alwaysApply: false
+---
+**Trackure State Management:**
+
+*   **Server State:** Use **TanStack Query (React Query)** for ALL data fetching, caching, and server state synchronization (e.g., fetching orders, items, workflow stages).
+    *   Define clear query keys.
+    *   Utilize `staleTime` and `cacheTime` effectively.
+    *   Use `useMutation` for data modifications, implementing optimistic updates where appropriate for better UX.
+    *   Reference: `@src/hooks/queries/use-items.ts` (Hypothetical query hook)
+*   **Client State:** Use **Zustand** (or Jotai if preferred later) ONLY for transient UI state that doesn't need to be persisted or synchronized with the server (e.g., modal open/close state, complex form state not suited for React Hook Form alone, UI theme preferences if added later).
+*   **Avoid Prop Drilling:** Use React Context or state management libraries for sharing state deep down the component tree.
+*   **Forms:** Use **React Hook Form** for managing form state and validation.
+
+**Goal:** Maintain a clear separation between server cache and UI state, leveraging TanStack Query's power for server interactions and keeping client state minimal.

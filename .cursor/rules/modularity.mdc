@@ -1,0 +1,25 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+Rule Type: Always
+Description: Enforce modular design; break features into composable components, hooks, and utilities. Avoid monolithic files.
+---
+
+**Trackure Modularity Principles:**
+
+*   **Feature Slicing:** When building a new feature (e.g., Rework Management, Workflow Customization), break it down vertically. Create dedicated folders under `src/features/` or similar.
+*   **Component Composition:** Favor small, single-purpose React components. Use Shadcn/ui primitives and compose them. Keep components under 200-300 lines where possible.
+*   **Hook Extraction:** Extract reusable logic (state management, API calls, complex calculations) into custom hooks (`src/hooks/`).
+*   **Utility Functions:** Place pure, reusable functions in `src/lib/utils.ts` or feature-specific utility files.
+*   **Type Definitions:** Define shared TypeScript types/interfaces in `src/types/` or within feature folders if scoped.
+*   **API Logic:** Keep API route handlers (`src/app/api/...`) focused. Extract complex business logic into service functions (`src/lib/services/` or similar).
+
+**Example File References:**
+*   Good component structure: `@src/components/ui/button.tsx` (Reference Shadcn structure)
+*   Good hook example: `@src/hooks/use-workflow-stages.ts` (Hypothetical)
+*   API route structure: `@src/app/api/items/[itemId]/route.ts`
+
+**Goal:** Improve maintainability, testability, and parallel development by avoiding large, coupled files. The AI should suggest ways to break down complex tasks into smaller, modular pieces.

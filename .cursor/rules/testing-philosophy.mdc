@@ -1,0 +1,13 @@
+---
+description: Outline the basic testing approach for Trackure V1
+globs: 
+alwaysApply: false
+---
+**Trackure V1 Testing:**
+
+*   **Unit Tests (Vitest/Jest):** Focus on testing pure utility functions, complex custom hooks, and critical business logic (e.g., workflow transition logic, validation schemas). Aim for good coverage here.
+*   **Integration Tests:** Test interactions between components, API routes, and the database where feasible. Test RLS/RBAC logic via test helpers acting as different users.
+*   **End-to-End Tests (Playwright/Cypress - Recommended Post-V1):** While potentially deferred for V1 speed, aim to add E2E tests later for critical user flows (login, creating order, moving item through stages, rework, workflow customization).
+*   **Manual Testing:** Thorough manual testing of all features, especially workflow transitions, permissions, and edge cases, is critical for V1 release.
+
+**Goal:** Build confidence in the application's core functionality and prevent regressions, starting with foundational unit/integration tests.

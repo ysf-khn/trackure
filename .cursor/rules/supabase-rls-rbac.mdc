@@ -1,0 +1,17 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+Description: Strict adherence to Supabase RLS for multi-tenancy and RBAC checks for actions.
+
+**Supabase Security Rules for Trackure:**
+
+1.  **RLS is MANDATORY:** Every table containing organization-specific data MUST have Row Level Security policies enabled. Policies must filter based on `organization_id`, comparing against the authenticated user's claims or profile data.
+    *   Reference: `@src/lib/supabase/client.ts` (for client access patterns)
+2.  **RBAC Checks:** For any sensitive actions (e.g., deleting data, customizing workflow, accessing payment status, generating invoices/vouchers), backend logic (API Routes, Edge Functions) MUST explicitly check the user's role (`Owner` vs. `Worker`) *before* performing the action. RLS handles row visibility, but action authorization requires explicit code checks.
+3.  **Least Privilege:** Design RLS policies and RBAC checks based on the principle of least privilege. Workers should only access data and perform actions necessary for their operational tasks.
+4.  **Server-Side Operations:** Prefer performing sensitive database writes via Supabase Edge Functions or secure API routes where RBAC can be strictly enforced, rather than relying solely on client-side calls even with RLS.
+
+**Goal:** Ensure robust data isolation between tenants and prevent unauthorized actions within an organization. Assume all data access needs validation.

@@ -1,0 +1,15 @@
+---
+description: Standards for Next.js API Routes and/or Supabase Edge Functions
+globs: 
+alwaysApply: false
+---
+**Trackure API/Backend Logic Standards:**
+
+1.  **Input Validation:** ALL API endpoints MUST validate incoming request bodies/parameters using **Zod**. Reject invalid requests early with clear error messages (e.g., 400 Bad Request).
+2.  **Authentication & Authorization:** Every endpoint MUST verify user authentication (via Supabase session) and perform necessary RBAC checks (Owner vs. Worker) before proceeding.
+3.  **Error Handling:** Implement consistent error handling. Return meaningful HTTP status codes (400, 401, 403, 404, 500). Log errors server-side (integrate with Sentry/logging service).
+4.  **Clear Responses:** Return predictable JSON responses, including success/error status and relevant data or error messages.
+5.  **Service Layer:** For complex operations, consider extracting business logic into reusable service functions called by the API route handlers.
+6.  **Use Edge Functions:** For logic needing low latency DB access or specific runtimes (e.g., complex PDF generation), consider Supabase Edge Functions.
+
+**Goal:** Ensure backend endpoints are secure, robust, validated, and provide clear responses.

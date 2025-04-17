@@ -1,0 +1,15 @@
+---
+description: Promote effective TypeScript usage for better code quality and maintainability
+globs: 
+alwaysApply: false
+---
+**Trackure TypeScript Practices:**
+
+*   **Strong Typing:** Avoid `any` wherever possible. Use `unknown` for values with truly unknown types and perform type checks/assertions.
+*   **Interfaces vs. Types:** Use interfaces for defining object shapes (e.g., API responses, database models) and type aliases for unions, intersections, primitives, or utility types.
+*   **Utility Types:** Leverage built-in utility types (`Partial`, `Required`, `Omit`, `Pick`, `Record`, etc.) to create new types efficiently.
+*   **Explicit Return Types:** Add explicit return types to functions for clarity, especially for complex or exported functions.
+*   **Type Guards:** Use type guards or libraries like Zod for runtime validation that also narrows types.
+*   **Generics:** Use generics for creating reusable components, hooks, and functions that work with various types.
+
+**Goal:** Leverage TypeScript's features to catch errors early, improve code clarity, and make refactoring safer.
