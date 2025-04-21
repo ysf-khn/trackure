@@ -1,0 +1,22 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+Rule Type: Always
+Description: Specifies Supabase Auth as the project's authentication provider.
+---
+
+**Authentication Context: Supabase Auth**
+
+This project uses **Supabase Auth** for all user authentication needs (signup, login, logout, session management).
+
+**Key Implications:**
+
+*   Frontend authentication logic uses the `@supabase/supabase-js` client library (likely via helpers in `lib/supabase/`).
+*   Server-side authentication checks (in API routes, Server Components, Middleware) rely on Supabase session handling.
+*   Row Level Security (RLS) policies in the Supabase database are likely tied to `auth.uid()`.
+*   Password resets and other auth flows utilize Supabase features.
+
+**Instruction:** Please ensure any suggestions, code generation, or analysis related to authentication, user sessions, security policies (RLS), or protected routes align with Supabase Auth patterns and capabilities. Do not suggest alternative authentication libraries (like NextAuth.js, Clerk, etc.) unless specifically asked to compare.

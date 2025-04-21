@@ -4,11 +4,21 @@ import { type SupabaseClient } from "@supabase/supabase-js"; // Import SupabaseC
 // import type { Database } from "@/types/supabase"; // TODO: Uncomment and fix path once types are generated
 
 // TODO: Replace 'any' with actual types once Database type path is found and import uncommented
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type SubStage = any; // Database['public']['Tables']['workflow_sub_stages']['Row'];
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type Stage = any & {
-  // Database['public']['Tables']['workflow_stages']['Row']
+// Basic types with essential fields + itemCount
+export type SubStage = {
+  id: string;
+  name: string;
+  stage_id: string;
+  itemCount: number;
+  // Add other fields from workflow_sub_stages if needed
+  sequence_order: number;
+};
+export type Stage = {
+  id: string;
+  name: string;
+  itemCount: number;
+  // Add other fields from workflow_stages if needed
+  sequence_order: number;
   subStages: SubStage[];
 };
 export type WorkflowStructure = Stage[];
@@ -43,6 +53,52 @@ export async function getWorkflowStructure(
   supabase: SupabaseClient
 ): Promise<WorkflowStructure> {
   const organizationId = await getOrganizationIdForCurrentUser(supabase);
+
+  // Fetch item counts for the organization if orgId exists
+  let itemCounts: Record<string, Record<string, number>> = {}; // { stageId: { subStageId: count } }
+  let stageOnlyCounts: Record<string, number> = {}; // { stageId: count } for items with no sub-stage
+
+  if (organizationId) {
+    const { data: countsData, error: countsError } = await supabase
+      .from("items")
+      .select("current_stage_id, current_sub_stage_id")
+      .eq("organization_id", organizationId)
+      // Optionally filter out completed/archived items if needed
+      // .neq('status', 'COMPLETED')
+      .then((response) => {
+        // Manual count grouping as Supabase count() can be tricky with multiple groups
+        if (response.error) return response; // Propagate error
+
+        const counts: Record<string, Record<string, number>> = {};
+        const stageCounts: Record<string, number> = {};
+
+        for (const item of response.data || []) {
+          if (item.current_stage_id) {
+            if (item.current_sub_stage_id) {
+              if (!counts[item.current_stage_id]) {
+                counts[item.current_stage_id] = {};
+              }
+              counts[item.current_stage_id][item.current_sub_stage_id] =
+                (counts[item.current_stage_id][item.current_sub_stage_id] ||
+                  0) + 1;
+            } else {
+              // Count items directly under a stage (no sub-stage)
+              stageCounts[item.current_stage_id] =
+                (stageCounts[item.current_stage_id] || 0) + 1;
+            }
+          }
+        }
+        return { data: { counts, stageCounts }, error: null }; // Return processed counts
+      });
+
+    if (countsError) {
+      console.error("Error fetching item counts:", countsError);
+      // Don't throw, proceed without counts, they will default to 0
+    } else if (countsData) {
+      itemCounts = countsData.counts;
+      stageOnlyCounts = countsData.stageCounts;
+    }
+  }
 
   let stagesResult;
   let fetchedDefaults = false; // Flag to know if we fetched defaults
@@ -111,15 +167,28 @@ export async function getWorkflowStructure(
     if (!acc[stageId]) {
       acc[stageId] = [];
     }
-    acc[stageId].push(subStage);
+    // Add itemCount to sub-stage
+    acc[stageId].push({
+      ...subStage,
+      itemCount: itemCounts[stageId]?.[subStage.id] || 0,
+    });
     return acc;
   }, {} as Record<string, SubStage[]>);
 
   // Combine stages and their sub-stages
-  const workflowStructure: WorkflowStructure = stages.map((stage) => ({
-    ...stage,
-    subStages: subStagesByStageId[stage.id] || [],
-  }));
+  const workflowStructure: WorkflowStructure = stages.map((stage) => {
+    const subStages = subStagesByStageId[stage.id] || [];
+    // Calculate total stage count: sum of its sub-stage counts + items directly under the stage
+    const totalStageCount =
+      (stageOnlyCounts[stage.id] || 0) +
+      subStages.reduce((sum: number, ss: SubStage) => sum + ss.itemCount, 0);
+
+    return {
+      ...stage,
+      subStages: subStages,
+      itemCount: totalStageCount, // Add total count to stage
+    };
+  });
 
   return workflowStructure;
 }

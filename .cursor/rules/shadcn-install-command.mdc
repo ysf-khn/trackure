@@ -1,0 +1,8 @@
+---
+description: Provides the correct command syntax for adding Shadcn UI components
+globs: 
+alwaysApply: false
+---
+**Shadcn/ui Component Installation Command**
+
+When adding new Shadcn UI components to this project, the specific command syntax to use is: npx shadcn@latest add <component_name>
