@@ -11,21 +11,21 @@ _(Prerequisites: Phase 2 completed - Users can create orders/items, move items f
 **1. "Send Back (Record Rework)" Action:**
 
 - **1.1. UI Trigger:**
-  - **Action:** Add a "Send Back for Rework" button (enabled when items are selected) and/or an action item within the row's `DropdownMenu` in the `ItemListTable` component (`src/components/items/item-list-table.tsx`).
+  - **Action:** Add a "Send Back for Rework" button (enabled when items are selected) and/or an action item within the row's `DropdownMenu` in the `ItemListTable` component (`components/items/item-list-table.tsx`).
   - **Action:** Conditionally render this UI element based on user role (accessible only to 'Owner' as per current PRD, unless Worker permission is granted).
 - **1.2. Rework Modal UI:**
-  - **Action:** Create a new component for the Rework Modal (`src/components/items/rework-modal.tsx`) using Shadcn `Dialog`.
+  - **Action:** Create a new component for the Rework Modal (`components/items/rework-modal.tsx`) using Shadcn `Dialog`.
   - **Action:** Include the following fields within the modal form (using React Hook Form + Zod):
     - `Target Stage/Sub-stage`: A `Select` component (Shadcn `Select`) to choose the destination rework stage.
     - `Reason for Rework`: A `Textarea` component (Shadcn `Textarea`) for the detailed reason.
     - (Display the selected Item IDs for confirmation).
 - **1.3. Populate Target Stage Dropdown:**
   - **Action:** When the Rework Modal opens, fetch the list of valid _previous_ stages/sub-stages for the selected item(s).
-  - **Action:** Create a backend API route (e.g., `/api/workflows/valid-rework-targets?currentItemStageId=...¤tItemSubStageId=...`) that takes the current stage/sub-stage ID.
+  - **Action:** Create a backend API route (e.g., `api/workflows/valid-rework-targets?currentItemStageId=...¤tItemSubStageId=...`) that takes the current stage/sub-stage ID.
   - **Action:** This API route queries the organization's `workflow_stages` and `workflow_sub_stages` based on `organization_id`, filtering for stages/sub-stages with a `sequence_order` _less than_ the current stage/sub-stage's sequence order. Return `id` and `name`.
   - **Action:** Use `useQuery` in the Rework Modal to fetch these valid targets and populate the `Select` component.
 - **1.4. Backend API for Rework Action:**
-  - **Action:** Create a new API route (e.g., `src/app/api/items/move/rework/route.ts` - handling POST).
+  - **Action:** Create a new API route (e.g., `app/api/items/move/rework/route.ts` - handling POST).
   - **Action:** Expect an array of `item_id`s, the target `rework_stage_id`, target `rework_sub_stage_id` (nullable), and `rework_reason` text in the request body. Validate input using Zod.
   - **Action:** Verify user authentication, get `organization_id`, and perform RBAC check (ensure user role is 'Owner').
   - **Action:** For each `item_id`:
@@ -48,10 +48,10 @@ _(Prerequisites: Phase 2 completed - Users can create orders/items, move items f
 - **2.1. UI Trigger:**
   - **Action:** Add an "Add Remark" button/icon in the `ItemListTable` row actions or within an Item Detail view/modal. This should be available to both 'Owner' and 'Worker' roles.
 - **2.2. Add Remark Modal/Panel UI:**
-  - **Action:** Create a simple component (`src/components/items/add-remark-modal.tsx`?) using Shadcn `Dialog` or `Sheet`.
+  - **Action:** Create a simple component (`components/items/add-remark-modal.tsx`?) using Shadcn `Dialog` or `Sheet`.
   - **Action:** Include a `Textarea` for the remark content and a Submit button. Pass the relevant `item_id`.
 - **2.3. Backend API for Adding Remarks:**
-  - **Action:** Create an API route (e.g., `src/app/api/items/[itemId]/remarks/route.ts` - handling POST).
+  - **Action:** Create an API route (e.g., `app/api/items/[itemId]/remarks/route.ts` - handling POST).
   - **Action:** Validate request body (remark text) using Zod. Extract `itemId` from the route parameters.
   - **Action:** Verify user authentication and get `user_id`, `organization_id`. (RBAC: Allow both Owner and Worker).
   - **Action:** `INSERT` into the `remarks` table, providing `item_id`, `user_id`, `text`, `timestamp` (use DB `NOW()`), and `organization_id`.

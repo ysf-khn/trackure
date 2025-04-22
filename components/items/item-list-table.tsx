@@ -15,7 +15,7 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 
-import { MoreHorizontal, ChevronRight } from "lucide-react";
+import { MoreHorizontal, ChevronRight, Undo2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,6 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Table,
@@ -42,15 +43,16 @@ import {
 import { useMoveItemsForward } from "@/hooks/mutations/use-move-items-forward"; // Import the mutation hook
 import { ItemHistoryModal } from "./item-history-modal"; // Import the modal
 import { useAuth } from "@/hooks/use-auth"; // Use the correct hook
+import { ReworkModal } from "./rework-modal"; // Import the ReworkModal
+import { AddRemarkModal } from "./add-remark-modal"; // Import the AddRemarkModal
 
-// Helper to display key instance details (customize as needed)
-const displayInstanceDetails = (details: Record<string, unknown>): string => {
-  // Example: Displaying first 2 key-value pairs or specific keys
-  return Object.entries(details)
-    .slice(0, 2) // Show limited details in the table
-    .map(([key, value]) => `${key}: ${value}`)
-    .join(", ");
-};
+// Define the shape of an item for the rework modal
+interface ReworkableItem {
+  id: string;
+  current_stage_id: string;
+  current_sub_stage_id?: string | null;
+  display_name?: string; // Assuming SKU or similar is used as display name
+}
 
 // Define Columns - Adding meta type for mutation access
 export const columns: ColumnDef<ItemInStage>[] = [
@@ -58,7 +60,10 @@ export const columns: ColumnDef<ItemInStage>[] = [
     id: "select",
     header: ({ table }) => {
       const meta = table.options.meta as ItemListTableMeta | undefined;
-      if (!meta?.canPerformActions) {
+      if (
+        !meta?.userRole ||
+        (meta.userRole !== "Owner" && meta.userRole !== "Worker")
+      ) {
         return null;
       }
       return (
@@ -76,7 +81,10 @@ export const columns: ColumnDef<ItemInStage>[] = [
     },
     cell: ({ row, table }) => {
       const meta = table.options.meta as ItemListTableMeta | undefined;
-      if (!meta?.canPerformActions) {
+      if (
+        !meta?.userRole ||
+        (meta.userRole !== "Owner" && meta.userRole !== "Worker")
+      ) {
         return null;
       }
       return (
@@ -93,7 +101,7 @@ export const columns: ColumnDef<ItemInStage>[] = [
   {
     accessorKey: "sku",
     header: "SKU",
-    cell: ({ row }) => <div>{row.getValue("sku")}</div>,
+    cell: ({ row }) => <div className="font-medium">{row.getValue("sku")}</div>,
   },
   {
     accessorKey: "instance_details",
@@ -103,7 +111,7 @@ export const columns: ColumnDef<ItemInStage>[] = [
         string,
         unknown
       >;
-      return <div>{displayInstanceDetails(details)}</div>;
+      return <div className="truncate w-32">{JSON.stringify(details)}</div>;
     },
   },
   {
@@ -131,11 +139,24 @@ export const columns: ColumnDef<ItemInStage>[] = [
     id: "actions",
     cell: ({ row, table }) => {
       const item = row.original;
-      const meta = table.options.meta as ItemListTableMeta | undefined; // Allow meta to be potentially undefined
+      const meta = table.options.meta as ItemListTableMeta | undefined;
 
-      // Don't render the action menu if the user cannot perform actions or meta is missing
-      if (!meta?.canPerformActions) {
-        return null;
+      // Prepare item data for modal
+      const reworkableItem: ReworkableItem = {
+        id: item.id,
+        current_stage_id: item.current_stage_id,
+        current_sub_stage_id: item.current_sub_stage_id,
+        display_name: item.sku, // Use SKU as display name, adjust if needed
+      };
+
+      // Determine if actions are possible
+      const canMove = meta?.userRole === "Owner" || meta?.userRole === "Worker";
+      const canRework = meta?.userRole === "Owner";
+      const canViewHistory = true; // Assuming anyone can view history
+      const canAddRemark = canMove; // Both Owner and Worker can add remarks
+
+      if (!canMove && !canRework && !canViewHistory && !canAddRemark) {
+        return null; // No actions available for this user
       }
 
       return (
@@ -144,37 +165,49 @@ export const columns: ColumnDef<ItemInStage>[] = [
             <Button
               variant="ghost"
               className="h-8 w-8 p-0"
-              disabled={meta.isMovingItems}
+              disabled={meta?.isMovingItems}
             >
-              {" "}
               <span className="sr-only">Open menu</span>
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            {/* Move Forward is role-restricted */}
-            {meta.canPerformActions && (
+            {canMove && (
               <DropdownMenuItem
-                onClick={() => meta.handleMoveForward([item.id])}
-                disabled={meta.isMovingItems}
+                onClick={() => meta?.handleMoveForward([item.id])}
+                disabled={meta?.isMovingItems}
               >
                 Move Forward
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem
-              onClick={() => {
-                // Ensure onViewHistory exists before calling
-                if (meta.onViewHistory) {
-                  meta.onViewHistory(item.id, item.sku);
-                }
-              }}
-              // Also disable if onViewHistory doesn't exist
-              disabled={!meta.onViewHistory || meta.isMovingItems}
-            >
-              View History
-            </DropdownMenuItem>
-            {/* Removed unused separator and placeholder delete action */}
+            {canRework && (
+              <DropdownMenuItem
+                onSelect={(e) => e.preventDefault()}
+                onClick={() => meta?.handleOpenReworkModal([reworkableItem])}
+                disabled={meta?.isMovingItems}
+              >
+                Send Back for Rework
+              </DropdownMenuItem>
+            )}
+            {canAddRemark && (
+              <AddRemarkModal itemId={item.id}>
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                  Add Remark
+                </DropdownMenuItem>
+              </AddRemarkModal>
+            )}
+            {(canMove || canRework || canAddRemark) && (
+              <DropdownMenuSeparator />
+            )}
+            {canViewHistory && (
+              <DropdownMenuItem
+                onClick={() => meta?.onViewHistory?.(item.id, item.sku)}
+                disabled={meta?.isMovingItems || !meta?.onViewHistory}
+              >
+                View History
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       );
@@ -189,9 +222,10 @@ export const columns: ColumnDef<ItemInStage>[] = [
 // Define Meta type for table options
 interface ItemListTableMeta {
   onViewHistory?: (itemId: string, itemSku: string) => void;
-  handleMoveForward: (itemIds: string[]) => void; // Add move forward handler
-  isMovingItems: boolean; // Add loading state for mutation
-  canPerformActions: boolean; // Flag for role-based action permission
+  handleMoveForward: (itemIds: string[]) => void;
+  handleOpenReworkModal: (items: ReworkableItem[]) => void;
+  isMovingItems: boolean;
+  userRole?: string | null;
 }
 
 interface ItemListTableProps {
@@ -207,12 +241,16 @@ export function ItemListTable({
 }: ItemListTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({}); // Fix type for rowSelection
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
 
   // State for History Modal
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [historyItemId, setHistoryItemId] = useState<string | null>(null);
   const [historyItemSku, setHistoryItemSku] = useState<string | null>(null);
+
+  // State for Rework Modal
+  const [isReworkModalOpen, setIsReworkModalOpen] = useState(false);
+  const [reworkItems, setReworkItems] = useState<ReworkableItem[]>([]);
 
   const {
     data: items,
@@ -221,16 +259,13 @@ export function ItemListTable({
     error: itemsError,
   } = useItemsInStage(organizationId, stageId, subStageId);
 
-  const { profile, isLoading: isLoadingUser } = useAuth(); // Use correct hook and get profile
-
+  const { profile, isLoading: isLoadingUser } = useAuth();
   const moveItemsMutation = useMoveItemsForward();
 
   // Determine role from profile (assuming profile has a 'role' property)
   const userRole = profile?.role; // Safely access role from profile
-
-  // Determine if the current user can perform actions based on role
-  const canPerformActions =
-    !isLoadingUser && (userRole === "Owner" || userRole === "Worker");
+  const isOwner = userRole === "Owner";
+  const canPerformBulkActions = isOwner || userRole === "Worker"; // Move or Rework
 
   // Function to open history modal
   const handleViewHistory = (itemId: string, itemSku: string) => {
@@ -239,11 +274,28 @@ export function ItemListTable({
     setIsHistoryModalOpen(true);
   };
 
+  // Function to open rework modal
+  const handleOpenReworkModal = (itemsToRework: ReworkableItem[]) => {
+    if (!isOwner) {
+      console.warn("Attempted to open rework modal without Owner role.");
+      return; // Prevent non-owners from opening
+    }
+    if (itemsToRework.length > 0) {
+      setReworkItems(itemsToRework);
+      setIsReworkModalOpen(true);
+    } else {
+      console.log("No items selected for rework.");
+    }
+  };
+
   const handleMoveForward = (itemIds: string[]) => {
-    if (itemIds.length === 0 || !organizationId || !canPerformActions) {
-      // Add role check
+    if (!canPerformBulkActions) {
+      console.warn("Move Forward: Insufficient permissions.");
+      return;
+    }
+    if (itemIds.length === 0 || !organizationId) {
       console.warn(
-        "Cannot move items: No items selected, organizationId missing, or insufficient permissions."
+        "Cannot move items: No items selected or organizationId missing."
       );
       return;
     }
@@ -251,11 +303,15 @@ export function ItemListTable({
       { itemIds, organizationId },
       {
         onSuccess: () => {
-          // Clear selection after successful mutation
-          setRowSelection({});
+          setRowSelection({}); // Clear selection on success
         },
       }
     );
+  };
+
+  // Callback for successful rework action
+  const handleReworkSuccess = () => {
+    setRowSelection({}); // Clear selection after successful rework
   };
 
   const table = useReactTable<ItemInStage>({
@@ -281,17 +337,19 @@ export function ItemListTable({
     meta: {
       onViewHistory: handleViewHistory,
       handleMoveForward: handleMoveForward,
+      handleOpenReworkModal: handleOpenReworkModal,
       isMovingItems: moveItemsMutation.isPending,
-      canPerformActions: canPerformActions, // Pass permission flag
+      userRole: userRole,
     } as ItemListTableMeta,
   });
 
-  // Selected row IDs accessor
-  const selectedRowIds = Object.keys(rowSelection)
-    .filter(
-      (key) => rowSelection[key] // Check if key exists and is true
-    )
-    .map((key) => table.getRow(key).original.id);
+  // Get selected item data for bulk actions
+  const selectedItemsData = table.getSelectedRowModel().rows.map((row) => ({
+    id: row.original.id,
+    current_stage_id: row.original.current_stage_id,
+    current_sub_stage_id: row.original.current_sub_stage_id,
+    display_name: row.original.sku, // Use SKU as display name
+  }));
 
   // Loading state: Check user loading AND item loading
   if (isLoadingUser || isLoadingItems) {
@@ -316,30 +374,51 @@ export function ItemListTable({
   return (
     <div className="w-full space-y-4">
       {/* Area above table for bulk actions */}
-      <div className="flex items-center justify-between space-x-2 py-4">
-        {/* Conditionally render the main Move Forward button */}
-        {canPerformActions && (
+      <div className="flex items-center justify-start space-x-2 py-4">
+        {canPerformBulkActions && (
           <Button
-            onClick={() => handleMoveForward(selectedRowIds)}
-            disabled={
-              selectedRowIds.length === 0 || moveItemsMutation.isPending
+            variant="outline"
+            onClick={() =>
+              handleMoveForward(selectedItemsData.map((item) => item.id))
             }
+            disabled={
+              selectedItemsData.length === 0 || moveItemsMutation.isPending
+            }
+            size="sm"
           >
-            Move Selected ({selectedRowIds.length}){" "}
+            Move Selected ({selectedItemsData.length})
             <ChevronRight className="ml-2 h-4 w-4" />
           </Button>
         )}
-        {/* Add Filters or other controls here if needed */}
+        {isOwner && (
+          <Button
+            variant="outline"
+            onClick={() => handleOpenReworkModal(selectedItemsData)}
+            disabled={
+              selectedItemsData.length === 0 || moveItemsMutation.isPending
+            }
+            size="sm"
+          >
+            Send Back Selected ({selectedItemsData.length})
+            <Undo2 className="ml-2 h-4 w-4" />
+          </Button>
+        )}
       </div>
       {/* Table */}
       <div className="rounded-md border border-border">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
+              <TableRow
+                key={headerGroup.id}
+                className="border-b hover:bg-transparent"
+              >
                 {headerGroup.headers.map((header) => {
                   return (
-                    <TableHead key={header.id}>
+                    <TableHead
+                      key={header.id}
+                      className="bg-muted/50 first:rounded-tl-md last:rounded-tr-md"
+                    >
                       {header.isPlaceholder
                         ? null
                         : flexRender(
@@ -358,6 +437,7 @@ export function ItemListTable({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
+                  className="hover:bg-muted/50 transition-colors"
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -408,6 +488,13 @@ export function ItemListTable({
         itemSku={historyItemSku}
         isOpen={isHistoryModalOpen}
         onOpenChange={setIsHistoryModalOpen}
+      />
+      {/* Render the Rework Modal */}
+      <ReworkModal
+        isOpen={isReworkModalOpen}
+        onOpenChange={setIsReworkModalOpen}
+        items={reworkItems}
+        onSuccess={handleReworkSuccess}
       />
     </div>
   );
