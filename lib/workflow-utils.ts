@@ -2,7 +2,7 @@
 
 // Type definition for the expected structure of workflow stages fetched from DB
 // Should align with the select query in the API route
-type WorkflowStage = {
+export type WorkflowStage = {
   id: string;
   sequence_order: number;
   sub_stages: {
@@ -77,5 +77,80 @@ export function determineNextStage(
 
   // Case 3: Currently at the last main stage (and potentially its last sub-stage)
   // This is the end of the workflow
+  return null;
+}
+
+/**
+ * Determines the previous stage and/or sub-stage in the workflow sequence.
+ * Used for actions like "Send Back" or "Rework".
+ * @param currentStageId The ID of the item's current stage.
+ * @param currentSubStageId The ID of the item's current sub-stage (null if none).
+ * @param workflowStages The ordered list of stages and their ordered sub-stages for the organization.
+ * @returns An object containing the previous { stageId, subStageId } or null if at the start of the workflow.
+ */
+export function determinePreviousStage(
+  currentStageId: string,
+  currentSubStageId: string | null,
+  workflowStages: WorkflowStage[]
+): { stageId: string; subStageId: string | null } | null {
+  const currentStageIndex = workflowStages.findIndex(
+    (s) => s.id === currentStageId
+  );
+
+  if (currentStageIndex === -1) {
+    console.error(
+      `determinePreviousStage: Current stage ID ${currentStageId} not found in workflow.`
+    );
+    return null; // Current stage doesn't exist
+  }
+
+  const currentStage = workflowStages[currentStageIndex];
+
+  // Case 1: Currently in a sub-stage
+  if (currentSubStageId) {
+    const currentSubStages = currentStage.sub_stages ?? [];
+    const currentSubStageIndex = currentSubStages.findIndex(
+      (ss) => ss.id === currentSubStageId
+    );
+
+    if (currentSubStageIndex === -1) {
+      console.error(
+        `determinePreviousStage: Current sub-stage ID ${currentSubStageId} not found in stage ${currentStageId}.`
+      );
+      return null; // Data inconsistency
+    }
+
+    // Case 1a: There is a previous sub-stage within the current stage
+    if (currentSubStageIndex > 0) {
+      const previousSubStage = currentSubStages[currentSubStageIndex - 1];
+      return { stageId: currentStageId, subStageId: previousSubStage.id };
+    }
+    // Case 1b: This was the first sub-stage; move to the main stage itself (treated as the step before the first sub-stage)
+    else {
+      return { stageId: currentStageId, subStageId: null };
+    }
+  }
+
+  // Case 2: Currently at a main stage (no sub-stage ID provided, or was the first sub-stage)
+  // Find the previous main stage in the sequence
+  if (currentStageIndex > 0) {
+    const previousStage = workflowStages[currentStageIndex - 1];
+    const previousSubStages = previousStage.sub_stages ?? [];
+
+    // Case 2a: The previous main stage has sub-stages; move to its *last* sub-stage
+    if (previousSubStages.length > 0) {
+      return {
+        stageId: previousStage.id,
+        subStageId: previousSubStages[previousSubStages.length - 1].id,
+      };
+    }
+    // Case 2b: The previous main stage has no sub-stages; move directly to it
+    else {
+      return { stageId: previousStage.id, subStageId: null };
+    }
+  }
+
+  // Case 3: Currently at the first main stage (and not in a sub-stage, or was its first sub-stage)
+  // This is the beginning of the workflow
   return null;
 }

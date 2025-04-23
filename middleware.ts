@@ -64,7 +64,14 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getSession();
 
   // Define protected routes
-  const protectedRoutes = ["/dashboard"]; // Add more routes as needed, e.g., '/app'
+  const protectedRoutes = [
+    "/dashboard",
+    "/orders",
+    "/settings",
+    "/api/settings",
+    "/api/items",
+    "/api/orders",
+  ];
 
   // Check if the current path is protected
   const isProtectedRoute = protectedRoutes.some((route) =>
