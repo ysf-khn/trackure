@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { ItemListTable } from "@/components/items/item-list-table";
 import { useAuth } from "@/hooks/use-auth"; // Correct import path now
 import { useStage } from "@/hooks/queries/use-stage"; // Import the new hook
+import { useSubStage } from "@/hooks/queries/use-sub-stage"; // Import the sub-stage hook
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Terminal } from "lucide-react";
@@ -23,7 +24,8 @@ export default function StageViewPage() {
 
   // --- Stage/SubStage IDs ---
   const stageId = params.stageId as string | undefined;
-  const subStageId = searchParams.get("subStage") || null; // Get subStage from query param
+  // Correctly handle null from searchParams.get, pass undefined if null
+  const subStageId = searchParams.get("subStage") ?? undefined; // Fix linter error here
 
   // --- Fetch Stage Data ---
   const {
@@ -33,18 +35,13 @@ export default function StageViewPage() {
     error: stageError,
   } = useStage(stageId, organizationId);
 
-  // --- Action Handlers (Placeholders) ---
-  const handleMoveForward = React.useCallback((itemIds: string[]) => {
-    console.log(`Placeholder: Move forward items: ${itemIds.join(", ")}`);
-    // TODO: Implement actual API call using useMutation (from Step 4)
-    alert(`Placeholder: Would move items: ${itemIds.join(", ")}`);
-  }, []);
-
-  const handleViewHistory = React.useCallback((itemId: string) => {
-    console.log(`Placeholder: View history for item: ${itemId}`);
-    // TODO: Implement logic to show history modal/panel (from Step 5)
-    alert(`Placeholder: Would show history for item: ${itemId}`);
-  }, []);
+  // --- Fetch Sub-Stage Data (Conditional) ---
+  const {
+    data: subStageData,
+    isLoading: isSubStageLoading,
+    isError: isSubStageError,
+    error: subStageError,
+  } = useSubStage(subStageId ?? null, organizationId); // Pass null if undefined
 
   // --- Loading and Error States ---
   if (isAuthLoading || isStageLoading) {
@@ -52,6 +49,8 @@ export default function StageViewPage() {
     return (
       <div className="p-4 space-y-2">
         <Skeleton className="h-8 w-1/4" /> {/* Title placeholder */}
+        <Skeleton className="h-5 w-1/3 mt-1 mb-2" />{" "}
+        {/* Sub-title placeholder */}
         <Skeleton className="h-10 w-full" /> {/* Table placeholder */}
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
@@ -124,21 +123,51 @@ export default function StageViewPage() {
     );
   }
 
-  // --- Render Table ---
+  // --- Render Page Content ---
   return (
-    <div className="container mx-auto py-4 px-4 md:px-6">
-      <h1 className="text-2xl font-semibold mb-4">
-        {/* Display stage name */} Items in Stage: {stageData?.name ?? stageId}
-        {/* TODO: Handle sub-stage name fetching similarly if needed */}
-        {subStageId ? ` / Sub-Stage: ${subStageId}` : ""}
-      </h1>
+    // Added space-y-4 for spacing between sections
+    <div className="container mx-auto py-4 px-4 md:px-6 space-y-4">
+      {/* Stage and Sub-Stage Name Section */}
+      <div>
+        <h1 className="text-2xl font-semibold mb-1 bg-gradient-to-b from-white to-gray-800 text-transparent bg-clip-text">
+          {stageData?.name ?? stageId}
+        </h1>
+
+        {/* Sub-Stage Name (conditional) */}
+        {subStageId && (
+          <div className="mb-0">
+            {" "}
+            {/* Removed redundant margin */}
+            {isSubStageLoading ? (
+              <Skeleton className="h-5 w-1/3" /> // Sub-stage loading skeleton
+            ) : isSubStageError ? (
+              <span className="text-sm text-destructive">
+                {" "}
+                {/* Sub-stage error message */}
+                Error loading sub-stage:{" "}
+                {subStageError?.message || "Unknown error"}
+              </span>
+            ) : subStageData ? (
+              <p className="text-lg text-muted-foreground">
+                {" "}
+                {/* Display fetched sub-stage name */}
+                {subStageData.name ?? subStageId} {/* Fallback to ID */}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {" "}
+                {/* Sub-stage ID if data not found */}
+                Sub-Stage: {subStageId} (Details not found)
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
       <ItemListTable
         organizationId={organizationId}
         stageId={stageId} // Pass the ID
-        subStageId={subStageId}
-        onMoveForward={handleMoveForward}
-        onViewHistory={handleViewHistory}
+        subStageId={subStageId ?? null} // Pass subStageId or null
       />
     </div>
   );

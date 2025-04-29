@@ -41,6 +41,18 @@ import {
 } from "@/components/ui/command";
 import { useDebounce } from "@/hooks/queries/use-debounce";
 
+// Helper function to parse dimension strings (e.g., "LxWxH") and calculate volume
+const calculateVolume = (sizeString: string | undefined): number | null => {
+  if (!sizeString) return null;
+  const dimensions = sizeString
+    .toLowerCase()
+    .split("x")
+    .map((d) => parseFloat(d.trim()))
+    .filter((d) => !isNaN(d));
+  if (dimensions.length !== 3) return null; // Expecting 3 dimensions
+  return dimensions[0] * dimensions[1] * dimensions[2];
+};
+
 // Zod schema for form validation
 const formSchema = z.object({
   sku: z.string().min(1, { message: "SKU is required." }),
@@ -48,9 +60,27 @@ const formSchema = z.object({
   // Using string for input, backend will handle parsing/validation if necessary
   weight: z.string().optional(),
   size: z.string().optional(),
-  boxSize: z.string().optional(),
+  boxSize: z.string().optional(), // e.g., "10x10x5"
+  cartonSize: z.string().optional(), // e.g., "40x30x20"
+  piecesPerCarton: z.number().optional().nullable(), // Calculated, make it nullable
+  netWeight: z.string().optional(),
+  grossWeight: z.string().optional(),
+  volume: z.string().optional(), // e.g., "12x8x4" (perhaps redundant if sizes are captured)
   // Add other instance details fields as needed based on PRD/Schema
 });
+
+// Define a more specific type for the instance details payload
+type InstanceDetailsPayload = {
+  [key: string]: string | number | null | undefined;
+  weight?: number | null;
+  size?: string;
+  box_size?: string;
+  carton_size?: string;
+  pieces_per_carton?: number | null;
+  net_weight?: number | null;
+  gross_weight?: number | null;
+  volume?: string;
+};
 
 type AddItemFormProps = {
   orderId: string;
@@ -81,6 +111,11 @@ export function AddItemForm({ orderId, onItemAdded }: AddItemFormProps) {
       weight: "",
       size: "",
       boxSize: "",
+      cartonSize: "",
+      piecesPerCarton: null, // Initialize as null
+      netWeight: "",
+      grossWeight: "",
+      volume: "",
       // Initialize other fields
     },
   });
@@ -123,15 +158,37 @@ export function AddItemForm({ orderId, onItemAdded }: AddItemFormProps) {
   >({
     mutationFn: async (values: z.infer<typeof formSchema>) => {
       // Construct instance_details ensuring no undefined values are sent if empty
-      const instance_details_payload: Record<string, string | number> = {};
-      if (values.weight)
-        instance_details_payload.weight = parseFloat(values.weight); // Try parsing
+      const instance_details_payload: InstanceDetailsPayload = {};
+
+      // Existing fields
+      if (values.weight) {
+        const parsedWeight = parseFloat(values.weight);
+        if (!isNaN(parsedWeight))
+          instance_details_payload.weight = parsedWeight;
+      }
       if (values.size) instance_details_payload.size = values.size;
-      if (values.boxSize) instance_details_payload.box_size = values.boxSize; // snake_case
+      if (values.boxSize) instance_details_payload.box_size = values.boxSize;
+
+      // New fields
+      if (values.cartonSize)
+        instance_details_payload.carton_size = values.cartonSize;
+      if (values.piecesPerCarton !== null)
+        instance_details_payload.pieces_per_carton = values.piecesPerCarton;
+      if (values.netWeight) {
+        const parsedNetWeight = parseFloat(values.netWeight);
+        if (!isNaN(parsedNetWeight))
+          instance_details_payload.net_weight = parsedNetWeight;
+      }
+      if (values.grossWeight) {
+        const parsedGrossWeight = parseFloat(values.grossWeight);
+        if (!isNaN(parsedGrossWeight))
+          instance_details_payload.gross_weight = parsedGrossWeight;
+      }
+      if (values.volume) instance_details_payload.volume = values.volume;
 
       const payload: {
         sku: string;
-        instance_details?: Record<string, string | number>;
+        instance_details?: InstanceDetailsPayload;
       } = {
         sku: values.sku,
       };
@@ -160,6 +217,7 @@ export function AddItemForm({ orderId, onItemAdded }: AddItemFormProps) {
       // Invalidate queries to refetch relevant data
       queryClient.invalidateQueries({ queryKey: ["orderItems", orderId] }); // If you have a query for items specific to this order
       queryClient.invalidateQueries({ queryKey: ["itemsInStage"] }); // To update stage view lists
+      queryClient.invalidateQueries({ queryKey: ["workflow", "structure"] }); // To update sidebar counts
       if (onItemAdded) onItemAdded(); // Call optional callback
     },
     onError: (error: Error) => {
@@ -179,18 +237,25 @@ export function AddItemForm({ orderId, onItemAdded }: AddItemFormProps) {
     form.setValue("sku", selected.value, { shouldValidate: true });
     setSkuSearch(selected.value); // Update search state to match selection
 
-    // Pre-fill instance details from master_details if available
     // Reset other fields first to avoid merging old/new data
     form.resetField("weight");
     form.resetField("size");
     form.resetField("boxSize");
+    form.resetField("cartonSize");
+    form.resetField("piecesPerCarton");
+    form.resetField("netWeight");
+    form.resetField("grossWeight");
+    form.resetField("volume");
     // Reset other instance fields...
 
     if (selected.master_details) {
-      // Safely access properties using `unknown`
-      const weight = selected.master_details.weight;
-      const size = selected.master_details.size;
-      const boxSize = selected.master_details.box_size;
+      // Safely access properties using `unknown` or Record<string, unknown>
+      const details = selected.master_details as Record<string, unknown>;
+
+      // Existing fields
+      const weight = details.weight;
+      const size = details.size;
+      const boxSize = details.box_size; // snake_case from DB
 
       form.setValue(
         "weight",
@@ -200,9 +265,52 @@ export function AddItemForm({ orderId, onItemAdded }: AddItemFormProps) {
       );
       form.setValue("size", typeof size === "string" ? size : "");
       form.setValue("boxSize", typeof boxSize === "string" ? boxSize : "");
-      // Set other fields...
+
+      // New Fields
+      const cartonSize = details.carton_size;
+      const netWeight = details.net_weight;
+      const grossWeight = details.gross_weight;
+      const volume = details.volume;
+      // pieces_per_carton is calculated, don't prefill directly unless it's stored
+
+      form.setValue(
+        "cartonSize",
+        typeof cartonSize === "string" ? cartonSize : ""
+      );
+      form.setValue(
+        "netWeight",
+        typeof netWeight === "number" || typeof netWeight === "string"
+          ? String(netWeight)
+          : ""
+      );
+      form.setValue(
+        "grossWeight",
+        typeof grossWeight === "number" || typeof grossWeight === "string"
+          ? String(grossWeight)
+          : ""
+      );
+      form.setValue("volume", typeof volume === "string" ? volume : "");
+
+      // Trigger calculation after potentially pre-filling box/carton sizes
+      // (Will be handled by useEffect watching these fields)
     }
   };
+
+  // Add useEffect for calculating piecesPerCarton
+  const boxSizeValue = form.watch("boxSize");
+  const cartonSizeValue = form.watch("cartonSize");
+
+  React.useEffect(() => {
+    const boxVolume = calculateVolume(boxSizeValue);
+    const cartonVolume = calculateVolume(cartonSizeValue);
+
+    if (boxVolume && cartonVolume && boxVolume > 0) {
+      const pieces = Math.floor(cartonVolume / boxVolume);
+      form.setValue("piecesPerCarton", pieces, { shouldValidate: true });
+    } else {
+      form.setValue("piecesPerCarton", null, { shouldValidate: true }); // Set to null if calculation not possible
+    }
+  }, [boxSizeValue, cartonSizeValue, form]);
 
   // 5. Form Submit Handler
   function onSubmit(values: z.infer<typeof formSchema>) {
@@ -291,6 +399,11 @@ export function AddItemForm({ orderId, onItemAdded }: AddItemFormProps) {
                                   form.resetField("weight"); // Clear details for new SKU
                                   form.resetField("size");
                                   form.resetField("boxSize");
+                                  form.resetField("cartonSize");
+                                  form.resetField("piecesPerCarton");
+                                  form.resetField("netWeight");
+                                  form.resetField("grossWeight");
+                                  form.resetField("volume");
                                   setPopoverOpen(false);
                                 }}
                               >
@@ -387,7 +500,7 @@ export function AddItemForm({ orderId, onItemAdded }: AddItemFormProps) {
               name="boxSize"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Box Size</FormLabel>
+                  <FormLabel>Box Size (e.g., LxWxH)</FormLabel>
                   <FormControl>
                     <Input
                       placeholder="e.g., 12x12x6"
@@ -400,6 +513,104 @@ export function AddItemForm({ orderId, onItemAdded }: AddItemFormProps) {
               )}
             />
             {/* Add other instance detail FormFields here */}
+
+            {/* ---- NEW FIELDS START ---- */}
+            <FormField
+              control={form.control}
+              name="cartonSize"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Carton Size (e.g., LxWxH)</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="e.g., 40x30x20"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="piecesPerCarton"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Pieces per Carton (Calculated)</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="Auto-calculated"
+                      {...field}
+                      value={field.value === null ? "" : String(field.value)} // Display calculated value or empty
+                      readOnly // Make this field read-only
+                      className="bg-muted" // Optional: style to indicate read-only
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="netWeight"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Net Weight</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="e.g., 9.8"
+                      {...field}
+                      value={field.value ?? ""}
+                      type="number" // Hint for numeric input, but value is string
+                      step="any" // Allow decimals
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="grossWeight"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Gross Weight</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="e.g., 10.2"
+                      {...field}
+                      value={field.value ?? ""}
+                      type="number" // Hint for numeric input
+                      step="any" // Allow decimals
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="volume"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Volume (e.g., LxWxH)</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="e.g., 12x8x4"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Optional: Specify volume if different from calculated box
+                    size.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {/* ---- NEW FIELDS END ---- */}
 
             <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending ? "Adding..." : "Add Item"}

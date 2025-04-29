@@ -132,14 +132,18 @@ export async function POST(
     );
   }
 
-  // 6. Insert the remark
-  const { error: insertError } = await supabase.from("remarks").insert({
-    item_id: itemId,
-    user_id: user.id,
-    organization_id: profile.organization_id,
-    text: validatedData.text,
-    // timestamp defaults to now() in the database
-  });
+  // 6. Insert the remark and select the newly created row
+  const { data: newRemark, error: insertError } = await supabase
+    .from("remarks")
+    .insert({
+      item_id: itemId,
+      user_id: user.id,
+      organization_id: profile.organization_id,
+      text: validatedData.text,
+      // timestamp defaults to now() in the database
+    })
+    .select()
+    .single(); // Select the inserted row and expect only one
 
   if (insertError) {
     console.error("Error inserting remark:", insertError);
@@ -149,9 +153,11 @@ export async function POST(
     );
   }
 
-  // 7. Return success response
-  return NextResponse.json(
-    { message: "Remark added successfully" },
-    { status: 201 }
-  );
+  // 7. Return the newly created remark object, ensuring ID is a string
+  const responseData = {
+    ...newRemark,
+    id: String(newRemark.id), // Explicitly convert ID to string
+  };
+
+  return NextResponse.json(responseData, { status: 201 });
 }

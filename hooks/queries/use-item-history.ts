@@ -9,7 +9,6 @@ type HistoryQueryResult = {
   id: string;
   entered_at: string;
   exited_at: string | null;
-  action_taken: string | null;
   rework_reason: string | null;
   item_id: string;
   stage_id: string | null;
@@ -18,23 +17,25 @@ type HistoryQueryResult = {
   workflow_stages: { name: string } | null;
   workflow_sub_stages: { name: string } | null;
   // profiles: { email: string } | null; // Removed
+  // profiles: { full_name: string } | null; // Added profiles join for full_name
 };
 
 export type ItemHistoryEntry = {
   id: string;
   entered_at: string;
   exited_at: string | null;
-  action_taken: string | null;
   rework_reason: string | null;
   stage_name: string | null;
   sub_stage_name: string | null;
   user_email: string | null; // Keep this, but it will be populated differently
+  // user_full_name: string | null; // Added user full name
 };
 
 async function fetchItemHistory(itemId: string): Promise<ItemHistoryEntry[]> {
   const supabase = createClient();
 
   // Removed profiles ( email ) from select
+  // Added profiles ( full_name ) to select
   const { data, error } = await supabase
     .from("item_history")
     .select(
@@ -45,7 +46,7 @@ async function fetchItemHistory(itemId: string): Promise<ItemHistoryEntry[]> {
       rework_reason,
       user_id,
       workflow_stages ( name ),
-      workflow_sub_stages ( name )
+      workflow_sub_stages ( name ),
     `
     )
     .eq("item_id", itemId)
@@ -66,12 +67,13 @@ async function fetchItemHistory(itemId: string): Promise<ItemHistoryEntry[]> {
     id: entry.id,
     entered_at: entry.entered_at,
     exited_at: entry.exited_at,
-    action_taken: entry.action_taken,
     rework_reason: entry.rework_reason,
     stage_name: entry.workflow_stages?.name ?? "N/A",
     sub_stage_name: entry.workflow_sub_stages?.name ?? null,
     // Set user_email based on whether user_id exists, otherwise 'System'
-    user_email: entry.user_id ? entry.user_id : "System",
+    user_email: entry.user_id ? entry.user_id : "System", // Keep user_id for now, might remove later
+    // user_full_name:
+    //   entry.profiles?.full_name ?? (entry.user_id ? "Unknown User" : "System")
   }));
 }
 

@@ -154,3 +154,70 @@ export function determinePreviousStage(
   // This is the beginning of the workflow
   return null;
 }
+
+import { FetchedWorkflowStage } from "@/hooks/queries/use-workflow-structure"; // Import the EXPORTED type
+
+// --- NEW FUNCTION --- //
+interface SubsequentStageInfo {
+  id: string;
+  name: string | null;
+}
+
+export function getSubsequentStages(
+  workflowData: FetchedWorkflowStage[], // Use the type from the hook
+  currentStageId: string,
+  currentSubStageId: string | null | undefined
+): SubsequentStageInfo[] {
+  const subsequent: SubsequentStageInfo[] = [];
+  if (!workflowData || workflowData.length === 0) {
+    return [];
+  }
+
+  // Find the current stage's index
+  const currentStageIndex = workflowData.findIndex(
+    (stage) => stage.id === currentStageId
+  );
+
+  if (currentStageIndex === -1) {
+    console.error("getSubsequentStages: Current stage not found");
+    return [];
+  }
+
+  const currentStage = workflowData[currentStageIndex];
+
+  // 1. Add subsequent sub-stages within the current stage (if any)
+  if (currentSubStageId) {
+    const sortedSubStages = [...(currentStage.sub_stages || [])].sort(
+      (a, b) => a.sequence_order - b.sequence_order
+    );
+    const currentSubStageIndex = sortedSubStages.findIndex(
+      (sub) => sub.id === currentSubStageId
+    );
+
+    if (currentSubStageIndex !== -1) {
+      for (let i = currentSubStageIndex + 1; i < sortedSubStages.length; i++) {
+        // Note: We currently don't have a way to represent "Move to Sub-Stage X" distinctly
+        // in the UI/API. This function focuses on moving to subsequent *main* stages.
+        // If moving *within* sub-stages is required via this dropdown, the logic
+        // and return type need adjustment.
+        // For now, we skip adding sub-stages of the *current* stage.
+      }
+    }
+  }
+
+  // 2. Add all subsequent main stages
+  for (let i = currentStageIndex + 1; i < workflowData.length; i++) {
+    const stage = workflowData[i];
+    subsequent.push({ id: stage.id, name: stage.name });
+
+    // Optionally, include the first sub-stage of each subsequent stage if needed?
+    // Requires adjusting the return type and how targetStageId is handled.
+    // Example:
+    // const sortedSubStages = [...(stage.sub_stages || [])].sort((a, b) => a.sequence_order - b.sequence_order);
+    // if (sortedSubStages.length > 0) {
+    //   subsequent.push({ id: sortedSubStages[0].id, name: `${stage.name} > ${sortedSubStages[0].name}` });
+    // }
+  }
+
+  return subsequent;
+}

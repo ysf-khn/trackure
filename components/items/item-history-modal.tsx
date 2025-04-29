@@ -9,6 +9,8 @@ import {
   useItemRemarks,
   RemarkWithProfile,
 } from "@/hooks/queries/use-item-remarks";
+import { useItemImages, ItemImage } from "@/hooks/queries/use-item-images";
+import { createClient } from "@/lib/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import {
   Dialog,
@@ -27,12 +29,16 @@ import {
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { MessageSquareText } from "lucide-react";
+import { MessageSquareText, Image as ImageIcon, Camera } from "lucide-react";
 
-// Define a combined type for history and remarks
+// Update CombinedHistoryItem to potentially include images with remarks
+interface RemarkWithImages extends RemarkWithProfile {
+  images?: ItemImage[];
+}
+
 type CombinedHistoryItem =
   | (ItemHistoryEntry & { type: "history" })
-  | (RemarkWithProfile & { type: "remark" });
+  | (RemarkWithImages & { type: "remark" }); // Use RemarkWithImages
 
 interface ItemHistoryModalProps {
   itemId: string | null;
@@ -41,12 +47,15 @@ interface ItemHistoryModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+const BUCKET_NAME = "item-images"; // Match the bucket name used in uploader
+
 export function ItemHistoryModal({
   itemId,
   itemSku,
   isOpen,
   onOpenChange,
 }: ItemHistoryModalProps) {
+  const supabase = createClient(); // Get client for public URL generation
   const {
     data: history,
     isLoading: isLoadingHistory,
@@ -57,49 +66,90 @@ export function ItemHistoryModal({
     isLoading: isLoadingRemarks,
     error: remarksError,
   } = useItemRemarks(itemId);
+  const {
+    data: images,
+    isLoading: isLoadingImages, // Add loading state for images
+    error: imagesError,
+  } = useItemImages(itemId);
 
-  // Combine and sort data when both history and remarks are loaded
+  // State for viewing image in a dialog (implement dialog separately)
+  // const [viewingImageUrl, setViewingImageUrl] = useState<string | null>(null);
+
+  // Combine and sort data, now including images
   const combinedData = React.useMemo(() => {
-    if (isLoadingHistory || isLoadingRemarks || !history || !remarks) {
-      return [];
+    // Wait for all data sources
+    if (isLoadingHistory || isLoadingRemarks || isLoadingImages) {
+      return null; // Indicate loading state
     }
+    // Combine errors if any
+    if (historyError || remarksError || imagesError) {
+      return { error: historyError || remarksError || imagesError };
+    }
+    if (!history || !remarks || !images) {
+      return []; // Should not happen if loading is false and no error, but good practice
+    }
+
+    // Create a map of remarkId -> images[] for quick lookup
+    const imagesByRemarkId = new Map<string, ItemImage[]>();
+    images.forEach((img) => {
+      if (img.remark_id) {
+        if (!imagesByRemarkId.has(img.remark_id)) {
+          imagesByRemarkId.set(img.remark_id, []);
+        }
+        imagesByRemarkId.get(img.remark_id)?.push(img);
+      }
+    });
 
     const typedHistory: CombinedHistoryItem[] = history.map((entry) => ({
       ...entry,
       type: "history",
     }));
+    // Attach images to remarks
     const typedRemarks: CombinedHistoryItem[] = remarks.map((remark) => ({
       ...remark,
       type: "remark",
+      images: imagesByRemarkId.get(remark.id) || [], // Attach associated images
     }));
 
     const combined = [...typedHistory, ...typedRemarks];
 
     // Sort chronologically (newest first)
     combined.sort((a, b) => {
-      const dateA = new Date(
-        a.type === "history" ? a.entered_at : a.created_at
-      );
-      const dateB = new Date(
-        b.type === "history" ? b.entered_at : b.created_at
-      );
+      const dateA = new Date(a.type === "history" ? a.entered_at : a.timestamp);
+      const dateB = new Date(b.type === "history" ? b.entered_at : b.timestamp);
       return dateB.getTime() - dateA.getTime(); // Descending order
     });
 
     return combined;
-  }, [history, remarks, isLoadingHistory, isLoadingRemarks]);
+  }, [
+    history,
+    remarks,
+    images,
+    isLoadingHistory,
+    isLoadingRemarks,
+    isLoadingImages,
+    historyError,
+    remarksError,
+    imagesError,
+  ]);
 
   const renderHistory = () => {
-    if (isLoadingHistory || isLoadingRemarks)
-      return <p>Loading history and remarks...</p>;
-    if (historyError || remarksError)
+    if (combinedData === null)
+      return <p>Loading history, remarks, and images...</p>; // Loading state
+    if (
+      typeof combinedData === "object" &&
+      "error" in combinedData &&
+      combinedData.error
+    ) {
       return (
         <p className="text-destructive">
-          Error loading data: {historyError?.message || remarksError?.message}
+          Error loading data: {combinedData.error.message}
         </p>
       );
-    if (combinedData.length === 0)
+    }
+    if (!Array.isArray(combinedData) || combinedData.length === 0) {
       return <p>No history or remarks found for this item.</p>;
+    }
 
     return (
       <ScrollArea className="h-[60vh]">
@@ -123,9 +173,9 @@ export function ItemHistoryModal({
                       })}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary">
+                      {/* <Badge variant="secondary">
                         {item.action_taken || "Stage Entry"}
-                      </Badge>
+                      </Badge> */}
                     </TableCell>
                     <TableCell>
                       Entered{" "}
@@ -144,32 +194,77 @@ export function ItemHistoryModal({
                         </div>
                       )}
                     </TableCell>
-                    <TableCell>{item.user_email}</TableCell>
+                    {/* <TableCell>
+                      {item.user_full_name ?? item.user_email ?? "System"}
+                    </TableCell> */}
                   </TableRow>
                 );
               } else {
+                // Function to get public URL
+                const getImageUrl = (storagePath: string): string | null => {
+                  if (!storagePath) return null;
+                  const { data } = supabase.storage
+                    .from(BUCKET_NAME)
+                    .getPublicUrl(storagePath);
+                  return data?.publicUrl ?? null;
+                };
+
                 return (
                   <TableRow
                     key={`rem-${item.id}`}
-                    className="bg-muted/30 hover:bg-muted/50"
+                    className="bg-muted/30 hover:bg-muted/50 align-top" // Align top for remarks with images
                   >
-                    <TableCell>
-                      {formatDistanceToNow(new Date(item.created_at), {
+                    <TableCell className="pt-2">
+                      {formatDistanceToNow(new Date(item.timestamp), {
                         addSuffix: true,
                       })}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="pt-2">
                       <Badge
                         variant="outline"
                         className="border-blue-500 text-blue-700"
                       >
                         <MessageSquareText className="h-3 w-3 mr-1" /> Remark
+                        {item.images && item.images.length > 0 && (
+                          <Camera className="h-3 w-3 ml-1 text-muted-foreground" /> // Indicate image attached
+                        )}
                       </Badge>
                     </TableCell>
-                    <TableCell className="whitespace-normal break-words">
-                      {item.text}
+                    <TableCell className="whitespace-normal break-words pt-2">
+                      {/* Remark Text */}
+                      <p>{item.text}</p>
+                      {/* Image Thumbnails */}
+                      {item.images && item.images.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {item.images.map((img) => {
+                            const imageUrl = getImageUrl(img.storage_path);
+                            return imageUrl ? (
+                              <button
+                                key={img.id}
+                                // onClick={() => setViewingImageUrl(imageUrl)} // Add onClick later for Dialog
+                                className="w-16 h-16 rounded border overflow-hidden focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                              >
+                                <img
+                                  src={imageUrl}
+                                  alt={img.file_name || "Uploaded image"}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                              </button>
+                            ) : (
+                              // Placeholder for broken/missing image URL
+                              <div
+                                key={img.id}
+                                className="w-16 h-16 rounded border flex items-center justify-center bg-secondary"
+                              >
+                                <ImageIcon className="w-6 h-6 text-muted-foreground" />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="pt-2">
                       {item.profiles?.full_name ?? "Unknown User"}
                     </TableCell>
                   </TableRow>

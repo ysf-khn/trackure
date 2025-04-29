@@ -1,102 +1,94 @@
-# Trackure V1 - Implementation Plan: Phase 5 Detailed Tasks
+# Trackure V1 - Implementation Plan: Phase 5 Detailed Tasks (Updated)
 
-**Phase Goal:** Implement Packaging Logistics (material definition, user-defined reminders via Resend), PDF generation (Vouchers/Invoices - Owner only), and basic Payment Status recording (Owner only).
+**Phase Goal:** Implement Packaging Logistics (material definition, **per-order user-defined reminders** via Resend), PDF generation (Vouchers/Invoices - Owner only), and basic Payment Status recording (Owner only).
 
-_(Prerequisites: Phase 4 completed - Workflow customization is functional. Core tracking and rework are implemented. Users roles and RBAC are established)._
+_(Prerequisites: Phase 4 completed - Workflow customization is functional. Core tracking and rework are implemented. Users roles and RBAC are established. Order Creation/Editing UI exists)._
 
 ---
 
 ## Tasks Breakdown:
 
-**1. Packaging Logistics:**
+**1. Packaging Logistics (Per-Order Trigger):**
 
-- **1.1. Data Model (Verify/Add):**
-  - **Action:** Ensure a mechanism exists to store packaging requirements per order. Options:
-    - Add a `required_packaging_materials (jsonb or text[])` column to the `orders` table.
-    - _Or (More structured):_ Create a `packaging_materials` table (`id`, `order_id`, `material_name`, `quantity`, `organization_id`) and potentially a `material_master` table. _(Choose simpler JSONB/text array for V1 unless structure is crucial now)_.
-- **1.2. UI for Defining Materials:**
-  - **Action:** Add a section within the Order Detail view/page (or Order Creation form) for users (Owner/Worker) to input/list required packaging materials for that order. Use a simple `Textarea` or a dynamic list input component.
-  - **Action:** Implement saving this data to the chosen field/table in the database via an API update to the order.
-- **1.3. UI for Setting Reminder Trigger:**
-  - **Action:** In the Workflow Settings UI (accessible by 'Owner', created in Phase 4), add a section for "Packaging Reminders".
-  - **Action:** Allow the Owner to select _one_ Stage or Sub-stage from their custom workflow using a `Select` component. This selected stage ID will be the trigger point.
-  - **Action:** Store this selected `trigger_stage_id` (or `trigger_sub_stage_id`) potentially in an `organization_settings` table or directly on the `organizations` table.
+- **1.1. Data Model Update:**
+  - **Action:** Ensure the `orders` table includes:
+    - `required_packaging_materials (jsonb or text[])` (Confirm data type choice).
+    - `packaging_reminder_trigger_stage_id (uuid, fk->workflow_stages, nullable)`.
+    - `packaging_reminder_trigger_sub_stage_id (uuid, fk->workflow_sub_stages, nullable)`.
+    - `packaging_reminder_sent (boolean, default false, not null)`.
+  - **Action:** Apply necessary database migrations/changes.
+- **1.2. UI for Defining Materials & Trigger (Order Creation/Edit):**
+  - **Action:** Locate the Order Creation form (from Phase 2) and implement/locate an Order Edit form/page.
+  - **Action:** Within these forms, add/ensure sections for:
+    - Inputting `required_packaging_materials` (e.g., Textarea, dynamic list).
+    - A `Select` component (Shadcn `Select`) labeled "Send Packaging Reminder When Items Reach:".
+  - **Action:** Populate this `Select` dynamically by fetching the specific organization's current workflow stages and sub-stages (use `useWorkflowStructure` hook or similar query). Display names clearly (e.g., "Stage: Manufacturing", "Sub-stage: Polishing").
+  - **Action:** Allow the user to select one stage OR one sub-stage from the list. Store the corresponding ID(s) (`packaging_reminder_trigger_stage_id`, `packaging_reminder_trigger_sub_stage_id`) in the form state.
+  - _(Optional: Consider pre-selecting a default based on future organization settings)._
+- **1.3. Backend API Update (Order Create/Update):**
+  - **Action:** Modify the API route(s) handling Order creation (POST `/api/orders`) and Order updates (e.g., PUT/PATCH `/api/orders/[orderId]`).
+  - **Action:** Ensure these routes accept and validate the `required_packaging_materials`, `packaging_reminder_trigger_stage_id`, and `packaging_reminder_trigger_sub_stage_id` fields.
+  - **Action:** Save these values to the corresponding `orders` record in the database.
 - **1.4. Resend API Integration:**
-  - **Action:** Sign up for Resend and get an API key.
-  - **Action:** Store the Resend API key securely (e.g., environment variable on the server/Supabase Edge Function environment).
-  - **Action:** Install the Resend SDK: `npm install resend`.
-- **1.5. Backend Scheduled Task/Logic:**
-  - **Action:** Choose mechanism: Supabase Scheduled Edge Functions (preferred if available) or `pg_cron` within the database.
-  - **Action:** Create the scheduled function/job to run periodically (e.g., every hour).
-  - **Action:** Logic within the function:
-    - Identify organizations that have configured a trigger stage.
-    - For each organization, find items (`items` table) that have _just entered_ the configured `trigger_stage_id` (or `sub_stage_id`) since the last check. (Requires tracking notification status or using timestamps carefully).
-    - Fetch the `required_packaging_materials` for the corresponding `order_id`.
-    - Fetch the email address(es) of the 'Owner' (or designated contact) for that organization from the `profiles` table.
-    - Prepare data for email notification (Order #, Item SKU/details, Required Materials).
+  - **Action:** Verify Resend account is set up, API key is stored securely as an environment variable.
+  - **Action:** Verify Resend SDK (`npm install resend`) is installed.
+- **1.5. Backend Scheduled Task/Logic (Revised):**
+  - **Action:** Set up a Supabase Scheduled Edge Function or `pg_cron` job to run periodically (e.g., every hour).
+  - **Action:** Implement the function's logic:
+    1.  Select `orders` where `packaging_reminder_trigger_stage_id` OR `packaging_reminder_trigger_sub_stage_id` is NOT NULL AND `packaging_reminder_sent = false`.
+    2.  For each such `order`:
+        a. Get the specific `trigger_stage_id` / `trigger_sub_stage_id` for _that order_.
+        b. Check if any `item` associated with that `order_id` has _recently entered_ that trigger stage/sub-stage (e.g., check `item_history` records where `entered_at` is within the last interval + buffer and matches the trigger IDs).
+        c. If an item match is found:
+        i. Fetch `required_packaging_materials` from the `orders` record.
+        ii. Fetch Owner email(s) for the `organization_id` from `profiles`.
+        iii.Prepare email data (Order #, Required Materials, Trigger Stage Name).
+        iv. **Call Task 1.6 (Email Sending Logic).**
+        v. **(If implemented) Call Task 1.7 (In-App Notification Logic).**
+        vi. **Update the specific `orders` record: SET `packaging_reminder_sent = true`.** (Crucial to prevent repeats).
+        vii. Break or continue checking other orders.
 - **1.6. Email Sending Logic:**
-  - **Action:** Within the scheduled function, use the Resend SDK to send a formatted email notification containing the prepared data to the relevant user(s).
-  - **Action:** Implement robust error handling for the email sending process.
-  - **Action:** Mark the item/order as "reminder sent" in the database to avoid duplicate emails.
+  - **Action:** Create a reusable function (e.g., in `src/lib/email/send-reminder.ts`) that accepts order details, materials, recipient email(s).
+  - **Action:** Use the Resend SDK within this function to compose and send the formatted email reminder. Implement error handling and logging for email sends.
 - **1.7. Basic In-App Notifications (V1 Simple):**
-  - **Action:** Consider adding a simple in-app notification mechanism. Create a `notifications` table (`id`, `user_id`, `message`, `read_status`, `timestamp`, `organization_id`).
-  - **Action:** Modify the scheduled task (1.5) to also insert a record into the `notifications` table when an email reminder is triggered.
-  - **Action:** Add a simple notification icon/dropdown in the main application header that queries and displays unread notifications for the logged-in user.
+  - **Action:** (If implementing) Create/verify the `notifications` table schema.
+  - **Action:** Modify the scheduled task (1.5.c.v) to also `INSERT` a record into the `notifications` table when an email is sent.
+  - **Action:** Implement the UI element (e.g., Header icon/dropdown) to display unread notifications fetched via a `useQuery`.
 
-**2. PDF Generation (Vouchers & Invoices):**
+**2. PDF Generation (Vouchers & Invoices - Owner Only):**
 
 - **2.1. Integrate PDF Library:**
-  - **Action:** Choose and install a library (e.g., `@react-pdf/renderer` for component-based generation or `pdf-lib` for lower-level control). `npm install @react-pdf/renderer`.
+  - **Action:** Verify chosen library (e.g., `@react-pdf/renderer`) is installed.
 - **2.2. Backend Data Fetching Logic:**
-  - **Action:** Create reusable server-side functions (e.g., in `src/lib/pdf/data-fetchers.ts`) to gather all necessary data for:
-    - **Voucher:** Item details (instance + master), Order details, Current Stage/Sub-stage, potentially simplified Item History, Organization details. Requires `itemId`.
-    - **Invoice:** Order details, list of Items in the order with details, Organization details, potentially Payment Status. Requires `orderId`.
+  - **Action:** Create/verify server-side functions to gather data for Vouchers (`itemId`) and Invoices (`orderId`), including necessary joins for details.
 - **2.3. Basic PDF Templates:**
-  - **Action:** Create React components (if using `@react-pdf/renderer`) or template functions for:
-    - `VoucherTemplate.tsx` (handles Main/Return differentiation perhaps via props).
-    - `InvoiceTemplate.tsx`.
-  - **Action:** Structure the templates with basic layout, displaying fetched data clearly. Include placeholders for Organization name/logo. Keep V1 templates simple.
+  - **Action:** Create/verify React components (`VoucherTemplate.tsx`, `InvoiceTemplate.tsx`) or functions for basic layout and data display.
 - **2.4. API Route for PDF Generation:**
-  - **Action:** Create API routes (e.g., `src/app/api/vouchers/[itemId]/route.ts` GET, `src/app/api/invoices/[orderId]/route.ts` GET).
-  - **Action:** Validate parameters (`itemId`/`orderId`).
-  - **Action:** Verify user authentication and 'Owner' role (RBAC).
-  - **Action:** Call the data fetching functions (2.2).
-  - **Action:** Use the chosen PDF library and templates (2.3) to render the PDF to a buffer or stream _on the server_.
-  - **Action:** Set appropriate HTTP headers (`Content-Type: application/pdf`, `Content-Disposition: attachment; filename="..."`).
-  - **Action:** Return the generated PDF file stream/buffer in the response.
+  - **Action:** Implement/verify API routes (`GET /api/vouchers/[itemId]`, `GET /api/invoices/[orderId]`).
+  - **Action:** Enforce 'Owner' role RBAC. Fetch data, render PDF using library/template on the server, set headers, return PDF stream/buffer.
 - **2.5. UI Download Actions:**
-  - **Action:** Add "Download Voucher" / "Download Invoice" buttons in relevant UI locations (e.g., Item Table row menu, Order Detail page). Render only for 'Owner' role.
-  - **Action:** Link these buttons to directly call the corresponding API endpoints (e.g., `<a href="/api/vouchers/..." download>Download</a>` or trigger via JavaScript fetch).
+  - **Action:** Implement/verify "Download" buttons/links in the UI, accessible only to 'Owner' role, linking to the respective API endpoints.
 
-**3. Payment Status Recording:**
+**3. Payment Status Recording (Owner Only):**
 
-- **3.1. Verify Schema:** Confirm `payment_status (text, nullable)` exists on the `orders` table.
+- **3.1. Verify Schema:** Confirm `payment_status` exists on `orders` table.
 - **3.2. UI Element for Status Update:**
-  - **Action:** In the Order Detail view/page, add a `Select` or `RadioGroup` component (Shadcn) displaying the current `payment_status`.
-  - **Action:** Conditionally render this element only for the 'Owner' role.
-  - **Action:** Allow selection of predefined statuses (Lent, Credit, Paid).
+  - **Action:** Implement/verify `Select` or `RadioGroup` in Order Detail UI, visible/editable only by 'Owner'. Options: Lent, Credit, Paid.
 - **3.3. Backend API for Status Update:**
-  - **Action:** Create an API route (e.g., `src/app/api/orders/[orderId]/payment-status/route.ts` - handling PUT or PATCH).
-  - **Action:** Validate input (new status) using Zod. Extract `orderId`.
-  - **Action:** Verify user authentication and 'Owner' role (RBAC). Verify ownership of the order (`organization_id`).
-  - **Action:** `UPDATE` the `orders` table, setting the `payment_status` for the given `orderId`.
-  - **Action:** Handle errors and return success/error response.
+  - **Action:** Implement/verify API route (e.g., PUT/PATCH `/api/orders/[orderId]/payment-status`).
+  - **Action:** Enforce 'Owner' role RBAC. Validate input. `UPDATE` the `payment_status` on the `orders` record.
 - **3.4. Frontend Integration:**
-  - **Action:** Use `useMutation` triggered when the Owner changes the status selection.
-  - **Action:** Handle loading/success/error states. Update the displayed status optimistically or via query refetch on success.
+  - **Action:** Implement/verify `useMutation` triggered on status change by Owner. Handle loading/success/error. Update UI display.
 
 ---
 
 **Phase 5 Acceptance Criteria:**
 
-- Users can define required packaging materials for an order.
-- Owners can configure a workflow stage that triggers packaging reminders.
-- The backend system correctly identifies when items reach the trigger stage.
-- Email notifications are successfully sent via Resend to the appropriate user(s) containing relevant order/material details.
-- Basic in-app notifications for reminders are functional (if implemented).
-- Owners can trigger the generation and download of basic PDF Vouchers for items.
-- Owners can trigger the generation and download of basic PDF Invoices for orders.
-- PDFs contain accurate data fetched from the system.
-- Owners can view and manually update the internal Payment Status (Lent, Credit, Paid) for an order.
-- Workers cannot access/modify Payment Status or generate Vouchers/Invoices.
-- All new API endpoints have appropriate authentication, RBAC, and validation.
+- Users can specify required packaging materials and a reminder trigger stage/sub-stage when creating/editing an order.
+- The backend scheduled task correctly identifies orders needing reminders based on item progression to the specified trigger point.
+- Email reminders via Resend are successfully sent to the designated user(s) when triggered. Reminder status is tracked per order.
+- (If implemented) Basic in-app notifications are generated for reminders.
+- 'Owner' users can successfully generate and download basic PDF Vouchers and Invoices containing accurate data.
+- 'Owner' users can successfully view and manually update the internal Payment Status for an order.
+- 'Worker' users cannot access payment status fields or generate PDFs.
+- All new/updated API endpoints include appropriate authentication, RBAC, and validation.

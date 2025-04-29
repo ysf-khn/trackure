@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { determineNextStage } from "@/lib/workflow-utils";
+import { determineNextStage, WorkflowStage } from "@/lib/workflow-utils";
+
+// Use the specific type from the utils file if needed, or define locally
+// type FetchedStage = {
+//   id: string;
+//   sequence_order: number;
+//   sub_stages: { id: string; sequence_order: number }[];
+// };
 
 // Define the expected request body schema
 const moveForwardSchema = z.object({
   item_ids: z
     .array(z.string().uuid())
     .min(1, "At least one item ID is required."),
+  target_stage_id: z.string().uuid().optional().nullable(), // Optional target stage
 });
 
 export async function POST(request: Request) {
@@ -60,11 +68,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const { item_ids } = validation.data;
+  const { item_ids, target_stage_id } = validation.data;
 
   try {
     // Fetch workflow configuration for the organization once
-    const { data: workflowStages, error: workflowError } = await supabase
+    const { data: workflowStagesData, error: workflowError } = await supabase
       .from("workflow_stages")
       .select(
         `
@@ -80,13 +88,19 @@ export async function POST(request: Request) {
         ascending: true,
       });
 
-    if (workflowError || !workflowStages) {
+    if (workflowError || !workflowStagesData) {
       console.error("Move Forward Workflow Fetch Error:", workflowError);
       return NextResponse.json(
         { error: "Failed to fetch workflow configuration." },
         { status: 500 }
       );
     }
+
+    // Ensure sub_stages is always an array and cast to the expected type
+    const workflowStages: WorkflowStage[] = workflowStagesData.map((stage) => ({
+      ...stage,
+      sub_stages: stage.sub_stages || [],
+    }));
 
     // --- Transaction Start ---
     // Note: Supabase JS client doesn't have built-in transactions across multiple awaits easily.
@@ -114,12 +128,63 @@ export async function POST(request: Request) {
         continue; // Skip to the next item
       }
 
-      // Determine the next stage/sub-stage
-      const nextLocation = determineNextStage(
-        item.current_stage_id,
-        item.current_sub_stage_id,
-        workflowStages
-      );
+      let nextLocation: { stageId: string; subStageId: string | null } | null =
+        null;
+
+      // --- Determine Target Location --- //
+      if (target_stage_id) {
+        // Validate the target_stage_id
+        const currentStageIndex = workflowStages.findIndex(
+          (s) => s.id === item.current_stage_id
+        );
+        const targetStageIndex = workflowStages.findIndex(
+          (s) => s.id === target_stage_id
+        );
+
+        if (targetStageIndex === -1) {
+          errors.push({
+            itemId,
+            error: `Target stage ID ${target_stage_id} not found in workflow.`,
+          });
+          continue;
+        }
+
+        if (currentStageIndex === -1) {
+          errors.push({
+            itemId,
+            error: `Current stage ID ${item.current_stage_id} not found for item.`,
+          });
+          continue;
+        }
+
+        // Ensure target stage is AFTER the current stage
+        if (targetStageIndex <= currentStageIndex) {
+          errors.push({
+            itemId,
+            error: `Target stage ${target_stage_id} is not after the current stage ${item.current_stage_id}.`,
+          });
+          continue;
+        }
+
+        // Target is valid, determine its first sub-stage (if any)
+        const targetStage = workflowStages[targetStageIndex];
+        const targetSubStages = targetStage.sub_stages ?? [];
+        const nextSubStageId =
+          targetSubStages.length > 0 ? targetSubStages[0].id : null;
+
+        nextLocation = {
+          stageId: target_stage_id,
+          subStageId: nextSubStageId,
+        };
+      } else {
+        // No target_stage_id provided, use the default next stage logic
+        nextLocation = determineNextStage(
+          item.current_stage_id,
+          item.current_sub_stage_id,
+          workflowStages // Use the formatted workflow stages
+        );
+      }
+      // --- End Determine Target Location --- //
 
       if (!nextLocation) {
         errors.push({

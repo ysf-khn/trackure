@@ -2,9 +2,14 @@
 // import { auth } from '@clerk/nextjs/server';
 import { createClient } from "@/lib/supabase/server"; // Import server client
 import { AddItemForm } from "@/components/items/add-item-form";
+import { PaymentStatus } from "@/types"; // Import PaymentStatus type
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"; // Added Card imports
+import PaymentStatusEditor from "@/components/orders/payment-status-editor"; // New component (to be created)
+import OrderDetailsDisplay from "@/components/orders/order-details-display"; // New component (to be created)
 // import { headers } from 'next/headers'; // Needed for createClient - REMOVED
 // import { OrderDetails } from '@/components/orders/order-details'; // Hypothetical component
 // import { ItemListTable } from '@/components/items/item-list-table'; // For displaying items later
+// TODO: Import hook or utility to check user role (e.g., useUserRole)
 
 type OrderDetailPageProps = {
   params: {
@@ -12,12 +17,22 @@ type OrderDetailPageProps = {
   };
 };
 
+// Define a type for the fetched order data
+type OrderData = {
+  id: string;
+  order_number: string;
+  customer_name: string | null;
+  payment_status: PaymentStatus | null;
+  created_at: string;
+  organization_id: string; // Needed for potential queries within components
+  // Add other fields as needed
+};
+
 export default async function OrderDetailPage({
   params,
 }: OrderDetailPageProps) {
-  const { orderId } = await params;
-  // const { userId, orgId } = auth();
-  const supabase = await createClient(); // Await the client creation
+  const { orderId } = await params; // No need to await params
+  const supabase = await createClient();
 
   // Fetch user session and profile server-side
   const {
@@ -25,68 +40,141 @@ export default async function OrderDetailPage({
   } = await supabase.auth.getUser();
 
   let userRole: string | null = null;
+  let organizationId: string | null = null;
   let canAddItem = false;
+  let isOwner = false; // Initialize isOwner
 
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role") // Select only the role
+      .select("role, organization_id") // Fetch org_id too
       .eq("id", user.id)
       .single();
-    userRole = profile?.role;
-    // Determine permission based on role
+
+    userRole = profile?.role ?? null;
+    organizationId = profile?.organization_id ?? null;
+    isOwner = userRole === "Owner";
     canAddItem = userRole === "Owner" || userRole === "Worker";
   }
 
-  // TODO: Fetch order details based on orderId and orgId
-  // const { data: order, error: orderError } = await supabase
-  //   .from('orders')
-  //   .select('*')
-  //   .eq('id', orderId)
-  //   .eq('organization_id', orgId)
-  //   .single();
+  // Fetch order details - MUST check organizationId for security
+  let order: OrderData | null = null;
+  let orderError: string | null = null;
 
-  // TODO: Fetch items associated with this order
-  // const { data: items, error: itemsError } = await supabase
-  //   .from('items')
-  //   .select('*, item_history(*, stages(*), sub_stages(*))') // Example fetch
-  //   .eq('order_id', orderId)
-  //   .eq('organization_id', orgId)
-  //   .order('created_at', { ascending: true });
+  if (organizationId) {
+    const { data: fetchedOrder, error } = await supabase
+      .from("orders")
+      .select(
+        "id, order_number, customer_name, payment_status, created_at, organization_id"
+      )
+      .eq("id", orderId)
+      .eq("organization_id", organizationId) // <<< Security check
+      .single<OrderData>();
 
-  // if (!order || orderError) {
-  //   // Handle error or not found (e.g., redirect or show error message)
-  //   return <div>Order not found or access denied.</div>;
-  // }
+    if (error) {
+      console.error(`Order fetch error for ${orderId}:`, error);
+      orderError = "Failed to load order details.";
+      // Handle specific errors like Pgrst116 (Not Found) differently if needed
+      if (error.code === "PGRST116") {
+        orderError = "Order not found or access denied.";
+      }
+    } else {
+      order = fetchedOrder;
+    }
+  } else if (user) {
+    // User is logged in but has no organization_id in profile
+    orderError =
+      "User profile is incomplete (missing organization). Access denied.";
+  } else {
+    // User is not logged in
+    // This case should ideally be handled by middleware, but double-check
+    orderError = "Unauthorized. Please log in.";
+    // Consider redirecting here if middleware isn't catching this
+    // redirect("/login");
+  }
 
+  // Handle error display or redirection
+  if (orderError && !order) {
+    // Use a dedicated error display component or simple div
+    return (
+      <div className="container mx-auto p-4 text-destructive">{orderError}</div>
+    );
+  }
+
+  if (!order) {
+    // Should not happen if error handling above is correct, but as a fallback
+    return (
+      <div className="container mx-auto p-4 text-destructive">
+        An unknown error occurred loading the order.
+      </div>
+    );
+  }
+
+  // --- Render Page Content ---
   return (
     <div className="container mx-auto p-4 space-y-6">
-      <h1 className="text-2xl font-bold">Order Details: {orderId}</h1>
+      <h1 className="text-2xl font-bold">Order: {order.order_number}</h1>
 
-      {/* TODO: Display Order Details using a dedicated component */}
-      {/* <OrderDetails order={order} /> */}
-      <div className="p-4 border rounded-md bg-muted">
-        Placeholder for Order Details (Number, Customer, etc.)
-      </div>
+      {/* Order Details Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Details</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <OrderDetailsDisplay order={order} />
+          {/* Payment Status Display/Edit */}
+          <div className="mt-4 pt-4 border-t">
+            <h3 className="text-md font-semibold mb-2">Payment Status</h3>
+            {isOwner ? (
+              <PaymentStatusEditor
+                orderId={order.id}
+                initialStatus={order.payment_status ?? undefined} // Pass undefined if null
+              />
+            ) : (
+              <p className="text-sm">{order.payment_status ?? "Not Set"}</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Section to Add New Items - Conditionally render based on role */}
-      {canAddItem ? (
-        <div className="pt-4">
-          <h2 className="text-xl font-semibold pb-2">Add New Item</h2>
-          <AddItemForm orderId={orderId} />
-        </div>
-      ) : (
-        <div className="pt-4 text-muted-foreground">
-          You do not have permission to add items to this order.
-        </div>
+      {canAddItem && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Add New Item</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AddItemForm orderId={order.id} />
+          </CardContent>
+        </Card>
       )}
 
-      {/* TODO: Display List of Items in the Order */}
-      <h2 className="text-xl font-semibold pt-6">Items in this Order</h2>
-      {/* <ItemListTable items={items || []} /> */}
-      <div className="p-4 border rounded-md bg-muted">
-        Placeholder for Item List Table
-      </div>
+      {/* --- PDF Download Section --- */}
+      {isOwner && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Downloads</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Download Invoice Button Placeholder */}
+            <p className="text-sm text-muted-foreground">
+              (Download Invoice Button Placeholder)
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Placeholder for Item List */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Items</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            (Placeholder for Item List with Download Voucher Action)
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

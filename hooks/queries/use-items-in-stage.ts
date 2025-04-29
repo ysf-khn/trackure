@@ -2,19 +2,22 @@ import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client"; // Assuming client setup
 // import { useAuth } from "@/hooks/use-auth"; // Removed direct dependency
 
-// Define the structure of the fetched item data including the entry time
+// Define the structure of the fetched item data including the entry time and history ID
 export interface ItemInStage {
   id: string;
   sku: string;
+  order_id: string;
   instance_details: Record<string, unknown>; // Use unknown for flexible JSON
   current_stage_id: string;
   current_sub_stage_id: string | null;
   current_stage_entered_at: string | null; // ISO timestamp for when the item entered the current stage
+  current_stage_history_id: number | null; // ID of the item_history entry for entering the current stage
   // Add other relevant item fields as needed
 }
 
 // Define the structure of the history entry subset we need
 type HistoryEntry = {
+  id: number; // Added ID
   entered_at: string;
   stage_id: string;
   sub_stage_id: string | null;
@@ -23,7 +26,8 @@ type HistoryEntry = {
 const fetchItemsInStage = async (
   organizationId: string,
   stageId: string,
-  subStageId: string | null
+  subStageId: string | null,
+  orderIdFilter: string | null
 ): Promise<ItemInStage[]> => {
   const supabase = createClient();
 
@@ -35,10 +39,11 @@ const fetchItemsInStage = async (
       `
       id,
       sku,
+      order_id,
       instance_details,
       current_stage_id,
       current_sub_stage_id,
-      item_history ( entered_at, stage_id, sub_stage_id )
+      item_history ( id, entered_at, stage_id, sub_stage_id ) 
     `
     )
     .eq("organization_id", organizationId)
@@ -55,6 +60,11 @@ const fetchItemsInStage = async (
     query = query.is("current_sub_stage_id", null);
   }
 
+  // Filter by order_id if provided and not empty
+  if (orderIdFilter) {
+    query = query.eq("order_id", orderIdFilter);
+  }
+
   const { data, error } = await query;
 
   if (error) {
@@ -62,7 +72,7 @@ const fetchItemsInStage = async (
     throw new Error(error.message);
   }
 
-  // Process data to find the correct 'entered_at' for the current stage
+  // Process data to find the correct 'entered_at' and 'history_id' for the current stage
   const processedData =
     data?.map((item) => {
       const historyEntries = (item.item_history as HistoryEntry[]) || [];
@@ -86,12 +96,14 @@ const fetchItemsInStage = async (
         // Spread existing item fields, ensuring type consistency
         id: item.id,
         sku: item.sku,
+        order_id: item.order_id,
         instance_details: item.instance_details,
         current_stage_id: item.current_stage_id,
         current_sub_stage_id: item.current_sub_stage_id,
-        // Assign the found entry time, or null if not found
+        // Assign the found entry time and history ID, or null if not found
         current_stage_entered_at:
           latestEntryForCurrentStage?.entered_at ?? null,
+        current_stage_history_id: latestEntryForCurrentStage?.id ?? null,
         // Note: item_history is implicitly excluded by spreading known fields
       };
     }) || [];
@@ -103,18 +115,30 @@ const fetchItemsInStage = async (
 export const useItemsInStage = (
   organizationId: string | undefined | null,
   stageId: string,
-  subStageId: string | null
+  subStageId: string | null,
+  orderIdFilter: string | null
 ) => {
   // const { organizationId } = useAuth(); // Removed direct call
 
   return useQuery<ItemInStage[], Error>({
-    queryKey: ["itemsInStage", organizationId, stageId, subStageId],
+    queryKey: [
+      "itemsInStage",
+      organizationId,
+      stageId,
+      subStageId,
+      orderIdFilter,
+    ],
     queryFn: () => {
       if (!organizationId || !stageId) {
         // Return an empty array or throw if prerequisites are not met
         return Promise.resolve([]);
       }
-      return fetchItemsInStage(organizationId, stageId, subStageId);
+      return fetchItemsInStage(
+        organizationId,
+        stageId,
+        subStageId,
+        orderIdFilter
+      );
     },
     // Query will only run if organizationId and stageId are truthy
     enabled: !!organizationId && !!stageId,

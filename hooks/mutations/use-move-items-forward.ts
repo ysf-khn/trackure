@@ -23,17 +23,26 @@ type MoveForwardErrorResponse = {
 interface MoveItemsForwardVariables {
   itemIds: string[];
   organizationId: string;
+  targetStageId?: string | null; // Add optional target stage ID
 }
 
 async function moveItemsForwardAPI(
-  itemIds: string[]
+  variables: MoveItemsForwardVariables
 ): Promise<MoveForwardSuccessResponse> {
+  // Construct the body, including target_stage_id if present
+  const body: { item_ids: string[]; target_stage_id?: string | null } = {
+    item_ids: variables.itemIds,
+  };
+  if (variables.targetStageId !== undefined) {
+    body.target_stage_id = variables.targetStageId;
+  }
+
   const response = await fetch("/api/items/move/forward", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ item_ids: itemIds }),
+    body: JSON.stringify(body), // Send the constructed body
   });
 
   const data = await response.json();
@@ -57,11 +66,11 @@ export function useMoveItemsForward() {
     Error,
     MoveItemsForwardVariables // Use the new variables type
   >({
-    // Adapt mutationFn slightly to extract itemIds from variables
-    mutationFn: (variables) => moveItemsForwardAPI(variables.itemIds),
+    // Pass the whole variables object to the API function
+    mutationFn: (variables) => moveItemsForwardAPI(variables),
     onSuccess: (data, variables) => {
-      // 'variables' contains { itemIds, organizationId }
-      toast.success(data.message || "Items moved forward successfully!");
+      // 'variables' contains { itemIds, organizationId, targetStageId }
+      // toast.success(data.message || "Items moved forward successfully!");
 
       const { organizationId } = variables; // Get organizationId from variables
 

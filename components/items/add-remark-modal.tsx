@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -25,6 +25,11 @@ import {
 } from "@/components/ui/form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/use-auth";
+import { ImageUploader } from "@/components/ui/image-uploader";
+import { Separator } from "@/components/ui/separator";
+import { AlertCircle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 // Define Zod schema for form validation
 const remarkFormSchema = z.object({
@@ -36,16 +41,22 @@ const remarkFormSchema = z.object({
 
 type RemarkFormData = z.infer<typeof remarkFormSchema>;
 
+// Define expected type for the remark returned by the API
+interface CreatedRemark {
+  id: string;
+  // Include other fields if needed, e.g., text, timestamp
+}
+
 interface AddRemarkModalProps {
   itemId: string;
   children: React.ReactNode; // To wrap the trigger element
 }
 
-// Placeholder function for the API call - replace with actual implementation
+// API call function expects the created remark object as response
 async function addRemarkApi(
   itemId: string,
   data: RemarkFormData
-): Promise<void> {
+): Promise<CreatedRemark> {
   const response = await fetch(`/api/items/${itemId}/remarks`, {
     method: "POST",
     headers: {
@@ -58,12 +69,18 @@ async function addRemarkApi(
     const errorData = await response.json();
     throw new Error(errorData.message || "Failed to add remark");
   }
-  // No need to return data on success for this simple case
+  return response.json();
 }
 
 export function AddRemarkModal({ itemId, children }: AddRemarkModalProps) {
   const [isOpen, setIsOpen] = React.useState(false);
+  const [createdRemarkId, setCreatedRemarkId] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const {
+    organizationId,
+    isLoading: isAuthLoading,
+    error: authError,
+  } = useAuth();
 
   const form = useForm<RemarkFormData>({
     resolver: zodResolver(remarkFormSchema),
@@ -72,67 +89,118 @@ export function AddRemarkModal({ itemId, children }: AddRemarkModalProps) {
     },
   });
 
-  const mutation = useMutation({
+  const mutation = useMutation<CreatedRemark, Error, RemarkFormData>({
     mutationFn: (data: RemarkFormData) => addRemarkApi(itemId, data),
-    onSuccess: () => {
-      toast.success("Remark added successfully!");
-      form.reset();
-      setIsOpen(false);
-      // Invalidate queries related to item remarks or history to refetch
+    onSuccess: (newRemark) => {
+      toast.success("Remark text saved successfully!");
+      console.log(newRemark.id);
+      setCreatedRemarkId(newRemark.id);
       queryClient.invalidateQueries({ queryKey: ["itemRemarks", itemId] });
-      queryClient.invalidateQueries({ queryKey: ["itemHistory", itemId] }); // Assuming history might show remarks
+      queryClient.invalidateQueries({ queryKey: ["itemHistory", itemId] });
     },
     onError: (error) => {
-      toast.error(`Error: ${error.message}`);
+      toast.error(`Error saving remark: ${error.message}`);
+      setCreatedRemarkId(null);
     },
   });
 
+  useEffect(() => {
+    if (!isOpen) {
+      form.reset();
+      setCreatedRemarkId(null);
+    }
+  }, [isOpen, form]);
+
   function onSubmit(data: RemarkFormData) {
-    mutation.mutate(data);
+    if (!createdRemarkId) {
+      mutation.mutate(data);
+    }
   }
+
+  const handleClose = () => {
+    setIsOpen(false);
+    form.reset();
+    setCreatedRemarkId(null);
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add Remark</DialogTitle>
           <DialogDescription>
-            Add a remark for this item. It&apos;s will be visible in the
-            item&apos;s history.
+            Add a text remark for this item. You can attach an image after
+            saving the text.
           </DialogDescription>
         </DialogHeader>
+
+        {(isAuthLoading || authError || !organizationId) &&
+          !createdRemarkId && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>
+                {isAuthLoading
+                  ? "Loading user data..."
+                  : authError
+                    ? `Authentication error: ${authError.message}`
+                    : "Could not determine organization ID. Cannot upload images."}
+              </AlertDescription>
+            </Alert>
+          )}
+
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-4">
             <FormField
               control={form.control}
               name="text"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Remark</FormLabel>
+                  <FormLabel>Remark Text</FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Enter your remark here..."
+                      rows={4}
                       {...field}
+                      disabled={mutation.isPending || !!createdRemarkId}
                     />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsOpen(false)}
-              >
-                Cancel
+
+            {createdRemarkId && organizationId && (
+              <div className="pt-4">
+                <Separator className="mb-4" />
+                <ImageUploader
+                  itemId={itemId}
+                  organizationId={organizationId}
+                  remarkId={createdRemarkId}
+                  onUploadComplete={() => {
+                    toast.info("Image attached successfully.");
+                  }}
+                  disabled={mutation.isPending}
+                />
+              </div>
+            )}
+
+            <DialogFooter className="mt-6">
+              <Button type="button" variant="outline" onClick={handleClose}>
+                Close
               </Button>
-              <Button type="submit" disabled={mutation.isPending}>
-                {mutation.isPending ? "Saving..." : "Save Remark"}
-              </Button>
+              {!createdRemarkId && (
+                <Button
+                  type="button"
+                  onClick={form.handleSubmit(onSubmit)}
+                  disabled={mutation.isPending || !form.formState.isValid}
+                >
+                  {mutation.isPending ? "Saving Text..." : "Save Remark Text"}
+                </Button>
+              )}
             </DialogFooter>
-          </form>
+          </div>
         </Form>
       </DialogContent>
     </Dialog>
